@@ -14,6 +14,7 @@
 精通提升 = 元素精通 × 6 / (元素精通 + 2000)
 加伤区 = 1 + 星反应基础伤害提升
 双爆区（期望）= 1 + 暴击率 × 暴击伤害
+双爆区（暴伤）= 1 + 1 × 暴击伤害
 擢升区 = 1 + 擢升提升
 ```
 
@@ -66,7 +67,7 @@ python damage_calculator.py --list-inputs
 python damage_calculator.py --gui
 ```
 
-界面会显示所有输入框、中文字段名、是否必填、输入说明，并在输入区下方提供“计算”和“恢复示例默认值”按钮。点击“计算”后，窗口会用醒目文字显示最终期望伤害，并在下方结果区显示各分区系数和最终 `expected_damage`。
+界面会显示所有输入框、中文字段名、是否必填、输入说明，并在输入区下方提供“计算”、“切换期望/暴伤”和“恢复示例默认值”按钮。默认模式为期望伤害；点击“切换期望/暴伤”后进入暴伤模式，此时暴击率系数按 `1` 计算，即双爆区变为 `1 + 1 × 暴击伤害`。点击“计算”后，窗口会用醒目文字显示最终伤害，并在下方结果区显示各分区系数和最终 `expected_damage`。
 
 ## 使用方式
 
@@ -85,6 +86,18 @@ python damage_calculator.py \
   --flat-damage-increase 0 \
   --enemy-resistance 0.1 \
   --elevation-bonus 0
+```
+
+如果要在命令行中使用暴伤模式（暴击率系数按 `1` 计算），增加 `--crit-damage-only`：
+
+```bash
+python damage_calculator.py \
+  --atk 2000 \
+  --em 300 \
+  --crit-rate 0.7 \
+  --crit-damage 1.4 \
+  --talent-multiplier 2.5 \
+  --crit-damage-only
 ```
 
 程序会输出各分区系数以及最终 `expected_damage`。

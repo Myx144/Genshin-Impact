@@ -96,8 +96,16 @@ def resistance_multiplier(enemy_resistance: float) -> float:
     return 1 - enemy_resistance / 2
 
 
-def calculate_damage(character: CharacterInfo, coefficients: DamageCoefficients) -> dict[str, float]:
-    """Calculate expected damage and expose each formula area for review."""
+def calculate_damage(
+    character: CharacterInfo,
+    coefficients: DamageCoefficients,
+    crit_damage_only: bool = False,
+) -> dict[str, float]:
+    """Calculate damage and expose each formula area for review.
+
+    When crit_damage_only is True, the crit-rate coefficient is treated as 1,
+    so the crit area becomes 1 + crit damage.
+    """
 
     coefficient = reaction_coefficient(coefficients.catalyze_stacks)
     multiplier_area = coefficient * character.atk * coefficients.talent_multiplier
@@ -108,7 +116,8 @@ def calculate_damage(character: CharacterInfo, coefficients: DamageCoefficients)
         multiplier_area * damage_bonus_area * additive_area
         + coefficients.flat_damage_increase
     )
-    crit_area = 1 + character.crit_rate * character.crit_damage
+    crit_rate_coefficient = 1.0 if crit_damage_only else character.crit_rate
+    crit_area = 1 + crit_rate_coefficient * character.crit_damage
     resistance_area = resistance_multiplier(coefficients.enemy_resistance)
     elevation_area = 1 + coefficients.elevation_bonus
     expected_damage = base_area * crit_area * resistance_area * elevation_area
@@ -120,6 +129,7 @@ def calculate_damage(character: CharacterInfo, coefficients: DamageCoefficients)
         "damage_bonus_area": damage_bonus_area,
         "additive_area": additive_area,
         "base_area": base_area,
+        "crit_rate_coefficient": crit_rate_coefficient,
         "crit_area": crit_area,
         "resistance_area": resistance_area,
         "elevation_area": elevation_area,
@@ -155,7 +165,7 @@ def parse_gui_number(value: str, field_name: str, allow_negative: bool = False) 
     return number
 
 
-def calculate_from_values(values: dict[str, str]) -> dict[str, float]:
+def calculate_from_values(values: dict[str, str], crit_damage_only: bool = False) -> dict[str, float]:
     """Build data objects from GUI text values and calculate damage."""
 
     stacks = int(parse_gui_number(values["stacks"], "星超导层数"))
@@ -174,7 +184,7 @@ def calculate_from_values(values: dict[str, str]) -> dict[str, float]:
         enemy_resistance=parse_gui_number(values["enemy_resistance"], "目标抗性", allow_negative=True),
         elevation_bonus=parse_gui_number(values["elevation_bonus"], "擢升提升"),
     )
-    return calculate_damage(character, coefficients)
+    return calculate_damage(character, coefficients, crit_damage_only=crit_damage_only)
 
 
 def run_gui() -> None:
@@ -215,7 +225,8 @@ def run_gui() -> None:
 
     input_frame.columnconfigure(1, weight=1)
 
-    summary_var = tk.StringVar(value="点击“计算”后显示最终期望伤害")
+    summary_var = tk.StringVar(value="当前模式：期望伤害。点击“计算”后显示最终伤害")
+    mode_var = tk.StringVar(value="期望")
 
     button_frame = ttk.Frame(main_frame)
     button_frame.pack(fill="x", pady=(12, 0))
@@ -237,14 +248,16 @@ def run_gui() -> None:
     def show_results() -> None:
         try:
             values = {key: variable.get() for key, variable in entries.items()}
-            result = calculate_from_values(values)
+            crit_damage_only = mode_var.get() == "暴伤"
+            result = calculate_from_values(values, crit_damage_only=crit_damage_only)
         except ValueError as error:
             messagebox.showerror("输入错误", str(error))
             return
 
         expected_damage = result["expected_damage"]
-        summary_var.set(f"最终期望伤害：{expected_damage:.6f}")
-        lines = ["原神星超导反应角色伤害计算结果", "", f"最终期望伤害 expected_damage: {expected_damage:.6f}", ""]
+        mode_label = "暴击伤害" if mode_var.get() == "暴伤" else "期望伤害"
+        summary_var.set(f"当前模式：{mode_label}｜最终伤害：{expected_damage:.6f}")
+        lines = ["原神星超导反应角色伤害计算结果", f"当前模式：{mode_label}", "", f"最终伤害 expected_damage: {expected_damage:.6f}", ""]
         lines.extend(f"{key}: {value:.6f}" for key, value in result.items())
         result_text.delete("1.0", tk.END)
         result_text.insert(tk.END, "\n".join(lines))
@@ -252,10 +265,21 @@ def run_gui() -> None:
     def reset_defaults() -> None:
         for key, _cli_name, _chinese_name, _requirement, _note, default in INPUT_FIELDS:
             entries[key].set(default)
-        summary_var.set("点击“计算”后显示最终期望伤害")
+        mode_var.set("期望")
+        summary_var.set("当前模式：期望伤害。点击“计算”后显示最终伤害")
+        result_text.delete("1.0", tk.END)
+
+    def toggle_damage_mode() -> None:
+        if mode_var.get() == "期望":
+            mode_var.set("暴伤")
+            summary_var.set("当前模式：暴击伤害。暴击率系数按 1 计算，点击“计算”查看结果")
+        else:
+            mode_var.set("期望")
+            summary_var.set("当前模式：期望伤害。点击“计算”查看结果")
         result_text.delete("1.0", tk.END)
 
     ttk.Button(button_frame, text="计算", command=show_results).pack(side="left", padx=(0, 8))
+    ttk.Button(button_frame, text="切换期望/暴伤", command=toggle_damage_mode).pack(side="left", padx=(0, 8))
     ttk.Button(button_frame, text="恢复示例默认值", command=reset_defaults).pack(side="left")
 
     root.mainloop()
@@ -266,6 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--list-inputs", action="store_true", help="列出所需输入的数据名称和中文说明后退出")
     parser.add_argument("--gui", action="store_true", help="打开可视化输入界面")
+    parser.add_argument("--crit-damage-only", action="store_true", help="切换为暴伤模式：暴击率系数按 1 计算")
     parser.add_argument("--atk", type=non_negative_float, help="角色 atk / 角色面板攻击力")
     parser.add_argument("--em", type=non_negative_float, help="元素精通")
     parser.add_argument("--crit-rate", type=non_negative_float, help="暴击率，例如 0.7")
@@ -310,9 +335,10 @@ def main() -> None:
         enemy_resistance=args.enemy_resistance,
         elevation_bonus=args.elevation_bonus,
     )
-    result = calculate_damage(character, coefficients)
+    result = calculate_damage(character, coefficients, crit_damage_only=args.crit_damage_only)
 
-    print("原神星超导反应角色伤害计算结果")
+    mode_label = "暴击伤害" if args.crit_damage_only else "期望伤害"
+    print(f"原神星超导反应角色伤害计算结果（{mode_label}模式）")
     for key, value in result.items():
         print(f"{key}: {value:.6f}")
 
