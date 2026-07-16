@@ -215,8 +215,21 @@ def run_gui() -> None:
 
     input_frame.columnconfigure(1, weight=1)
 
+    summary_var = tk.StringVar(value="点击“计算”后显示最终期望伤害")
+
+    button_frame = ttk.Frame(main_frame)
+    button_frame.pack(fill="x", pady=(12, 0))
+
+    summary_label = ttk.Label(
+        main_frame,
+        textvariable=summary_var,
+        font=("Arial", 14, "bold"),
+        foreground="#0b6bcb",
+    )
+    summary_label.pack(fill="x", pady=(10, 0))
+
     result_frame = ttk.LabelFrame(main_frame, text="计算结果", padding=12)
-    result_frame.pack(fill="both", expand=True, pady=(12, 0))
+    result_frame.pack(fill="both", expand=True, pady=(8, 0))
 
     result_text = tk.Text(result_frame, height=14, wrap="word")
     result_text.pack(fill="both", expand=True)
@@ -229,7 +242,9 @@ def run_gui() -> None:
             messagebox.showerror("输入错误", str(error))
             return
 
-        lines = ["原神星超导反应角色伤害计算结果", ""]
+        expected_damage = result["expected_damage"]
+        summary_var.set(f"最终期望伤害：{expected_damage:.6f}")
+        lines = ["原神星超导反应角色伤害计算结果", "", f"最终期望伤害 expected_damage: {expected_damage:.6f}", ""]
         lines.extend(f"{key}: {value:.6f}" for key, value in result.items())
         result_text.delete("1.0", tk.END)
         result_text.insert(tk.END, "\n".join(lines))
@@ -237,11 +252,10 @@ def run_gui() -> None:
     def reset_defaults() -> None:
         for key, _cli_name, _chinese_name, _requirement, _note, default in INPUT_FIELDS:
             entries[key].set(default)
+        summary_var.set("点击“计算”后显示最终期望伤害")
         result_text.delete("1.0", tk.END)
 
-    button_frame = ttk.Frame(main_frame)
-    button_frame.pack(fill="x", pady=(12, 0))
-    ttk.Button(button_frame, text="计算伤害", command=show_results).pack(side="left", padx=(0, 8))
+    ttk.Button(button_frame, text="计算", command=show_results).pack(side="left", padx=(0, 8))
     ttk.Button(button_frame, text="恢复示例默认值", command=reset_defaults).pack(side="left")
 
     root.mainloop()

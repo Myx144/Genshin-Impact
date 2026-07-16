@@ -66,7 +66,7 @@ python damage_calculator.py --list-inputs
 python damage_calculator.py --gui
 ```
 
-界面会显示所有输入框、中文字段名、是否必填、输入说明，并提供“计算伤害”和“恢复示例默认值”按钮。计算后会在窗口下方显示各分区系数和最终 `expected_damage`。
+界面会显示所有输入框、中文字段名、是否必填、输入说明，并在输入区下方提供“计算”和“恢复示例默认值”按钮。点击“计算”后，窗口会用醒目文字显示最终期望伤害，并在下方结果区显示各分区系数和最终 `expected_damage`。
 
 ## 使用方式
 
