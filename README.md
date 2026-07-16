@@ -75,14 +75,20 @@ python damage_calculator.py --gui
 
 ### Debug 取整模式
 
-如果你在对比实际游戏伤害时发现有十几点偏差，可以打开 debug 取整模式来测试每一步取整造成的影响。
+如果你在对比实际游戏伤害时发现有十几点偏差，可以打开 debug 取整模式来测试取整造成的影响。
+
+Debug 取整现在分成两部分：
+
+- **数值取整**：对参与公式的原始数值先取整，例如 `atk`、元素精通、暴击率、暴击伤害、天赋倍率、目标抗性等。
+- **计算结果取整**：对每一步公式计算后的结果取整，例如反应系数、倍率区、增伤区、基础区、双爆区、最终伤害等。
 
 在 GUI 中点击计算栏里的“Debug取整”按钮，会打开单独的 debug 设置窗口。该窗口支持：
 
 - 自由开启或关闭 debug 取整模式。
-- 为每一个计算步骤单独选择取整方式：四舍五入、向上取整、向下取整、关闭取整。
-- 一键把全部计算步骤设置为同一种取整方式。
-- 点击“保存当前数据”时，也会保存当前 debug 开关和每一步取整方式，下次打开 GUI 自动加载。
+- 在“数值取整”和“计算结果取整”两个页签里分别设置取整方式。
+- 每个取整方式都改为按钮循环切换：点击按钮会在 `关闭取整 → 四舍五入 → 向上取整 → 向下取整 → 关闭取整` 之间循环。
+- 一键把全部数值或全部计算结果设置为同一种取整方式。
+- 点击“保存当前数据”时，也会保存当前 debug 开关、数值取整方式和计算结果取整方式，下次打开 GUI 自动加载。
 
 命令行也可以控制 debug 取整：
 
@@ -94,25 +100,32 @@ python damage_calculator.py \
   --crit-damage 1.4 \
   --talent-multiplier 2.5 \
   --debug-rounding \
-  --rounding-mode floor
+  --value-rounding-mode off \
+  --result-rounding-mode floor
 ```
 
-如果只想控制某一步，可以使用 `--round-step STEP=MODE`，例如：
+如果只想控制某一个数值或某一步计算结果，可以使用：
+
+- `--round-value STEP=MODE`：控制单个数值取整。
+- `--round-result STEP=MODE`：控制单个计算结果取整。
+
+例如：
 
 ```bash
 python damage_calculator.py \
-  --atk 2000 \
+  --atk 2000.6 \
   --em 300 \
   --crit-rate 0.7 \
   --crit-damage 1.4 \
   --talent-multiplier 2.5 \
   --debug-rounding \
-  --rounding-mode off \
-  --round-step base_area=ceil \
-  --round-step expected_damage=floor
+  --value-rounding-mode off \
+  --result-rounding-mode off \
+  --round-value atk=floor \
+  --round-result expected_damage=floor
 ```
 
-可用取整模式：`off`（关闭取整）、`round`（四舍五入）、`ceil`（向上取整）、`floor`（向下取整）。可用步骤名会在计算结果中以英文 key 形式显示，例如 `multiplier_area`、`base_area`、`crit_area`、`expected_damage`。
+可用取整模式：`off`（关闭取整）、`round`（四舍五入）、`ceil`（向上取整）、`floor`（向下取整）。旧参数 `--rounding-mode` 和 `--round-step` 仍可使用，分别等同于 `--result-rounding-mode` 和 `--round-result`。
 
 ## 使用方式
 

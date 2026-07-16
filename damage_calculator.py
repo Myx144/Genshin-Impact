@@ -33,19 +33,32 @@ ROUNDING_MODE_LABELS = {
     "ceil": "向上取整",
     "floor": "向下取整",
 }
-DEBUG_ROUNDING_STEPS = (
-    ("reaction_coefficient", "反应系数"),
-    ("multiplier_area", "倍率区"),
-    ("elemental_mastery_bonus", "精通提升"),
-    ("damage_bonus_area", "增伤区"),
-    ("additive_area", "加伤区"),
-    ("base_area", "基础区"),
-    ("crit_rate_coefficient", "暴击率系数"),
-    ("crit_area", "双爆区"),
-    ("resistance_area", "抗性区"),
-    ("elevation_area", "擢升区"),
-    ("expected_damage", "最终伤害"),
+DEBUG_VALUE_STEPS = (
+    ("atk", "角色 atk / 角色面板攻击力"),
+    ("elemental_mastery", "元素精通"),
+    ("crit_rate", "暴击率"),
+    ("crit_damage", "暴击伤害"),
+    ("talent_multiplier", "天赋倍率"),
+    ("reaction_bonus", "反应提升"),
+    ("base_reaction_damage_bonus", "星反应基础伤害提升"),
+    ("flat_damage_increase", "伤害提高"),
+    ("enemy_resistance", "目标抗性"),
+    ("elevation_bonus", "擢升提升"),
 )
+DEBUG_RESULT_STEPS = (
+    ("reaction_coefficient", "反应系数计算结果"),
+    ("multiplier_area", "倍率区计算结果"),
+    ("elemental_mastery_bonus", "精通提升计算结果"),
+    ("damage_bonus_area", "增伤区计算结果"),
+    ("additive_area", "加伤区计算结果"),
+    ("base_area", "基础区计算结果"),
+    ("crit_rate_coefficient", "暴击率系数计算结果"),
+    ("crit_area", "双爆区计算结果"),
+    ("resistance_area", "抗性区计算结果"),
+    ("elevation_area", "擢升区计算结果"),
+    ("expected_damage", "最终伤害计算结果"),
+)
+DEBUG_ROUNDING_STEPS = DEBUG_RESULT_STEPS
 
 
 INPUT_FIELDS = (
@@ -91,18 +104,37 @@ class DamageCoefficients:
 
 @dataclass(frozen=True)
 class DebugConfig:
-    """Rounding controls for debug calculations."""
+    """Rounding controls for debug calculations.
+
+    value_rounding_modes controls raw numeric values before they enter formulas.
+    result_rounding_modes controls results after each calculation step.
+    rounding_modes is kept as a backward-compatible alias for result_rounding_modes.
+    """
 
     enabled: bool = False
+    value_rounding_modes: dict[str, str] | None = None
+    result_rounding_modes: dict[str, str] | None = None
     rounding_modes: dict[str, str] | None = None
 
 
-def default_rounding_modes(mode: str = "off") -> dict[str, str]:
-    """Return a rounding-mode mapping for every debug step."""
+def default_rounding_modes(mode: str = "off", steps: tuple[tuple[str, str], ...] = DEBUG_RESULT_STEPS) -> dict[str, str]:
+    """Return a rounding-mode mapping for the selected debug steps."""
 
     if mode not in ROUNDING_MODES:
         raise ValueError(f"未知取整模式：{mode}")
-    return {step: mode for step, _label in DEBUG_ROUNDING_STEPS}
+    return {step: mode for step, _label in steps}
+
+
+def default_value_rounding_modes(mode: str = "off") -> dict[str, str]:
+    """Return value rounding modes for all raw numeric values."""
+
+    return default_rounding_modes(mode, DEBUG_VALUE_STEPS)
+
+
+def default_result_rounding_modes(mode: str = "off") -> dict[str, str]:
+    """Return result rounding modes for all calculation-step results."""
+
+    return default_rounding_modes(mode, DEBUG_RESULT_STEPS)
 
 
 def round_debug_value(value: float, mode: str) -> float:
@@ -119,12 +151,15 @@ def round_debug_value(value: float, mode: str) -> float:
     raise ValueError(f"未知取整模式：{mode}")
 
 
-def apply_debug_rounding(value: float, step: str, debug_config: DebugConfig | None) -> float:
-    """Apply debug rounding to one calculation step when debug is enabled."""
+def apply_debug_rounding(value: float, step: str, debug_config: DebugConfig | None, category: str = "result") -> float:
+    """Apply debug rounding to one value or calculation result when enabled."""
 
     if debug_config is None or not debug_config.enabled:
         return value
-    rounding_modes = debug_config.rounding_modes or default_rounding_modes()
+    if category == "value":
+        rounding_modes = debug_config.value_rounding_modes or default_value_rounding_modes()
+    else:
+        rounding_modes = debug_config.result_rounding_modes or debug_config.rounding_modes or default_result_rounding_modes()
     return round_debug_value(value, rounding_modes.get(step, "off"))
 
 
@@ -173,64 +208,105 @@ def calculate_damage(
     so the crit area becomes 1 + crit damage.
     """
 
+    atk = apply_debug_rounding(character.atk, "atk", debug_config, "value")
+    elemental_mastery = apply_debug_rounding(character.elemental_mastery, "elemental_mastery", debug_config, "value")
+    crit_rate = apply_debug_rounding(character.crit_rate, "crit_rate", debug_config, "value")
+    crit_damage = apply_debug_rounding(character.crit_damage, "crit_damage", debug_config, "value")
+    talent_multiplier = apply_debug_rounding(coefficients.talent_multiplier, "talent_multiplier", debug_config, "value")
+    reaction_bonus = apply_debug_rounding(coefficients.reaction_bonus, "reaction_bonus", debug_config, "value")
+    base_reaction_damage_bonus = apply_debug_rounding(
+        coefficients.base_reaction_damage_bonus,
+        "base_reaction_damage_bonus",
+        debug_config,
+        "value",
+    )
+    flat_damage_increase = apply_debug_rounding(
+        coefficients.flat_damage_increase,
+        "flat_damage_increase",
+        debug_config,
+        "value",
+    )
+    enemy_resistance = apply_debug_rounding(coefficients.enemy_resistance, "enemy_resistance", debug_config, "value")
+    elevation_bonus = apply_debug_rounding(coefficients.elevation_bonus, "elevation_bonus", debug_config, "value")
+
     coefficient = apply_debug_rounding(
         reaction_coefficient(coefficients.catalyze_stacks),
         "reaction_coefficient",
         debug_config,
+        "result",
     )
     multiplier_area = apply_debug_rounding(
-        coefficient * character.atk * coefficients.talent_multiplier,
+        coefficient * atk * talent_multiplier,
         "multiplier_area",
         debug_config,
+        "result",
     )
     em_bonus = apply_debug_rounding(
-        elemental_mastery_bonus(character.elemental_mastery),
+        elemental_mastery_bonus(elemental_mastery),
         "elemental_mastery_bonus",
         debug_config,
+        "result",
     )
     damage_bonus_area = apply_debug_rounding(
-        1 + em_bonus + coefficients.reaction_bonus,
+        1 + em_bonus + reaction_bonus,
         "damage_bonus_area",
         debug_config,
+        "result",
     )
     additive_area = apply_debug_rounding(
-        1 + coefficients.base_reaction_damage_bonus,
+        1 + base_reaction_damage_bonus,
         "additive_area",
         debug_config,
+        "result",
     )
     base_area = apply_debug_rounding(
-        multiplier_area * damage_bonus_area * additive_area
-        + coefficients.flat_damage_increase,
+        multiplier_area * damage_bonus_area * additive_area + flat_damage_increase,
         "base_area",
         debug_config,
+        "result",
     )
     crit_rate_coefficient = apply_debug_rounding(
-        1.0 if crit_damage_only else character.crit_rate,
+        1.0 if crit_damage_only else crit_rate,
         "crit_rate_coefficient",
         debug_config,
+        "result",
     )
     crit_area = apply_debug_rounding(
-        1 + crit_rate_coefficient * character.crit_damage,
+        1 + crit_rate_coefficient * crit_damage,
         "crit_area",
         debug_config,
+        "result",
     )
     resistance_area = apply_debug_rounding(
-        resistance_multiplier(coefficients.enemy_resistance),
+        resistance_multiplier(enemy_resistance),
         "resistance_area",
         debug_config,
+        "result",
     )
     elevation_area = apply_debug_rounding(
-        1 + coefficients.elevation_bonus,
+        1 + elevation_bonus,
         "elevation_area",
         debug_config,
+        "result",
     )
     expected_damage = apply_debug_rounding(
         base_area * crit_area * resistance_area * elevation_area,
         "expected_damage",
         debug_config,
+        "result",
     )
 
     result = {
+        "atk": atk,
+        "elemental_mastery": elemental_mastery,
+        "crit_rate": crit_rate,
+        "crit_damage": crit_damage,
+        "talent_multiplier": talent_multiplier,
+        "reaction_bonus": reaction_bonus,
+        "base_reaction_damage_bonus": base_reaction_damage_bonus,
+        "flat_damage_increase": flat_damage_increase,
+        "enemy_resistance": enemy_resistance,
+        "elevation_bonus": elevation_bonus,
         "reaction_coefficient": coefficient,
         "multiplier_area": multiplier_area,
         "elemental_mastery_bonus": em_bonus,
@@ -246,7 +322,6 @@ def calculate_damage(
     if debug_config is not None and debug_config.enabled:
         result["debug_rounding_enabled"] = 1.0
     return result
-
 
 def non_negative_float(value: str) -> float:
     number = float(value)
@@ -322,7 +397,8 @@ def load_saved_gui_state(save_file: Path = SAVE_FILE) -> dict[str, object]:
             "values": default_gui_values(),
             "mode": "期望",
             "debug_enabled": False,
-            "debug_rounding_modes": default_rounding_modes(),
+            "debug_value_rounding_modes": default_value_rounding_modes(),
+            "debug_result_rounding_modes": default_result_rounding_modes(),
         }
 
     with save_file.open("r", encoding="utf-8") as file:
@@ -338,18 +414,28 @@ def load_saved_gui_state(save_file: Path = SAVE_FILE) -> dict[str, object]:
     if mode not in {"期望", "暴伤"}:
         mode = "期望"
 
-    saved_rounding_modes = saved_state.get("debug_rounding_modes", {})
-    debug_rounding_modes = default_rounding_modes()
-    for step in debug_rounding_modes:
-        mode_value = saved_rounding_modes.get(step, "off")
+    legacy_rounding_modes = saved_state.get("debug_rounding_modes", {})
+    saved_value_rounding_modes = saved_state.get("debug_value_rounding_modes", {})
+    saved_result_rounding_modes = saved_state.get("debug_result_rounding_modes", legacy_rounding_modes)
+
+    debug_value_rounding_modes = default_value_rounding_modes()
+    for step in debug_value_rounding_modes:
+        mode_value = saved_value_rounding_modes.get(step, "off")
         if mode_value in ROUNDING_MODES:
-            debug_rounding_modes[step] = mode_value
+            debug_value_rounding_modes[step] = mode_value
+
+    debug_result_rounding_modes = default_result_rounding_modes()
+    for step in debug_result_rounding_modes:
+        mode_value = saved_result_rounding_modes.get(step, "off")
+        if mode_value in ROUNDING_MODES:
+            debug_result_rounding_modes[step] = mode_value
 
     return {
         "values": values,
         "mode": mode,
         "debug_enabled": bool(saved_state.get("debug_enabled", False)),
-        "debug_rounding_modes": debug_rounding_modes,
+        "debug_value_rounding_modes": debug_value_rounding_modes,
+        "debug_result_rounding_modes": debug_result_rounding_modes,
     }
 
 
@@ -357,10 +443,15 @@ def save_gui_state(
     values: dict[str, str],
     mode: str,
     debug_enabled: bool = False,
-    debug_rounding_modes: dict[str, str] | None = None,
+    debug_value_rounding_modes: dict[str, str] | None = None,
+    debug_result_rounding_modes: dict[str, str] | None = None,
     save_file: Path = SAVE_FILE,
+    debug_rounding_modes: dict[str, str] | None = None,
 ) -> None:
     """Save current GUI values, mode, and debug settings to disk for the next launch."""
+
+    if debug_result_rounding_modes is None and debug_rounding_modes is not None:
+        debug_result_rounding_modes = debug_rounding_modes
 
     save_file.write_text(
         json.dumps(
@@ -368,7 +459,8 @@ def save_gui_state(
                 "values": values,
                 "mode": mode,
                 "debug_enabled": debug_enabled,
-                "debug_rounding_modes": debug_rounding_modes or default_rounding_modes(),
+                "debug_value_rounding_modes": debug_value_rounding_modes or default_value_rounding_modes(),
+                "debug_result_rounding_modes": debug_result_rounding_modes or default_result_rounding_modes(),
             },
             ensure_ascii=False,
             indent=2,
@@ -424,10 +516,15 @@ def run_gui() -> None:
     summary_var = tk.StringVar(value=f"当前模式：{initial_mode_label}。点击“计算”后显示最终伤害")
     mode_var = tk.StringVar(value=initial_mode)
     debug_enabled_var = tk.BooleanVar(value=bool(saved_state.get("debug_enabled", False)))
-    saved_rounding_modes = saved_state.get("debug_rounding_modes", default_rounding_modes())
-    debug_rounding_vars = {
-        step: tk.StringVar(value=saved_rounding_modes.get(step, "off"))
-        for step, _label in DEBUG_ROUNDING_STEPS
+    saved_value_rounding_modes = saved_state.get("debug_value_rounding_modes", default_value_rounding_modes())
+    saved_result_rounding_modes = saved_state.get("debug_result_rounding_modes", default_result_rounding_modes())
+    debug_value_rounding_vars = {
+        step: tk.StringVar(value=saved_value_rounding_modes.get(step, "off"))
+        for step, _label in DEBUG_VALUE_STEPS
+    }
+    debug_result_rounding_vars = {
+        step: tk.StringVar(value=saved_result_rounding_modes.get(step, "off"))
+        for step, _label in DEBUG_RESULT_STEPS
     }
 
     button_frame = ttk.Frame(main_frame)
@@ -453,7 +550,8 @@ def run_gui() -> None:
             crit_damage_only = mode_var.get() == "暴伤"
             debug_config = DebugConfig(
                 enabled=debug_enabled_var.get(),
-                rounding_modes={step: variable.get() for step, variable in debug_rounding_vars.items()},
+                value_rounding_modes={step: variable.get() for step, variable in debug_value_rounding_vars.items()},
+                result_rounding_modes={step: variable.get() for step, variable in debug_result_rounding_vars.items()},
             )
             result = calculate_from_values(
                 values,
@@ -478,7 +576,7 @@ def run_gui() -> None:
             entries[key].set(default)
         mode_var.set("期望")
         debug_enabled_var.set(False)
-        for variable in debug_rounding_vars.values():
+        for variable in [*debug_value_rounding_vars.values(), *debug_result_rounding_vars.values()]:
             variable.set("off")
         summary_var.set("当前模式：期望伤害。点击“计算”后显示最终伤害")
         result_text.delete("1.0", tk.END)
@@ -491,14 +589,15 @@ def run_gui() -> None:
             current_values(),
             mode_var.get(),
             debug_enabled=debug_enabled_var.get(),
-            debug_rounding_modes={step: variable.get() for step, variable in debug_rounding_vars.items()},
+            debug_value_rounding_modes={step: variable.get() for step, variable in debug_value_rounding_vars.items()},
+            debug_result_rounding_modes={step: variable.get() for step, variable in debug_result_rounding_vars.items()},
         )
         messagebox.showinfo("保存成功", f"当前数据和debug设置已保存，下次打开会自动加载。\n保存位置：{SAVE_FILE}")
 
     def open_debug_window() -> None:
         debug_window = tk.Toplevel(root)
         debug_window.title("Debug取整设置")
-        debug_window.geometry("620x520")
+        debug_window.geometry("760x640")
         debug_window.transient(root)
 
         ttk.Checkbutton(
@@ -507,45 +606,68 @@ def run_gui() -> None:
             variable=debug_enabled_var,
         ).pack(anchor="w", padx=12, pady=(12, 6))
 
-        controls_frame = ttk.LabelFrame(debug_window, text="每一步取整方式", padding=12)
-        controls_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        ttk.Label(
+            debug_window,
+            text="数值取整：对输入数值/原始数值先取整；计算结果取整：对每一步公式计算后的结果取整。点击按钮可循环切换取整方式。",
+            wraplength=720,
+        ).pack(anchor="w", padx=12, pady=(0, 6))
 
-        ttk.Label(controls_frame, text="计算步骤").grid(row=0, column=0, sticky="w", padx=4, pady=4)
-        ttk.Label(controls_frame, text="取整方式").grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        mode_labels = list(ROUNDING_MODE_LABELS.values())
-        label_to_mode = {label: mode for mode, label in ROUNDING_MODE_LABELS.items()}
-        mode_to_label = {mode: label for mode, label in ROUNDING_MODE_LABELS.items()}
+        mode_order = list(ROUNDING_MODES)
 
-        for row, (step, label) in enumerate(DEBUG_ROUNDING_STEPS, start=1):
-            ttk.Label(controls_frame, text=f"{label}（{step}）").grid(row=row, column=0, sticky="w", padx=4, pady=3)
-            display_var = tk.StringVar(value=mode_to_label[debug_rounding_vars[step].get()])
-            combo = ttk.Combobox(
-                controls_frame,
-                textvariable=display_var,
-                values=mode_labels,
-                state="readonly",
-                width=16,
-            )
-            combo.grid(row=row, column=1, sticky="w", padx=4, pady=3)
+        def button_text(label: str, mode: str) -> str:
+            return f"{label}: {ROUNDING_MODE_LABELS[mode]}"
 
-            def update_rounding(_event: object, step_name: str = step, var: tk.StringVar = display_var) -> None:
-                debug_rounding_vars[step_name].set(label_to_mode[var.get()])
+        def make_cycle_button(parent: ttk.Frame, label: str, variable: tk.StringVar) -> ttk.Button:
+            button = ttk.Button(parent)
 
-            combo.bind("<<ComboboxSelected>>", update_rounding)
+            def refresh() -> None:
+                button.configure(text=button_text(label, variable.get()))
 
-        def set_all_rounding(mode: str) -> None:
-            for variable in debug_rounding_vars.values():
+            def cycle() -> None:
+                current_index = mode_order.index(variable.get()) if variable.get() in mode_order else 0
+                variable.set(mode_order[(current_index + 1) % len(mode_order)])
+                refresh()
+
+            button.configure(command=cycle)
+            refresh()
+            return button
+
+        notebook = ttk.Notebook(debug_window)
+        notebook.pack(fill="both", expand=True, padx=12, pady=6)
+
+        value_frame = ttk.Frame(notebook, padding=12)
+        result_frame = ttk.Frame(notebook, padding=12)
+        notebook.add(value_frame, text="数值取整")
+        notebook.add(result_frame, text="计算结果取整")
+
+        def fill_rounding_frame(frame: ttk.Frame, steps: tuple[tuple[str, str], ...], variables: dict[str, tk.StringVar]) -> None:
+            for row, (step, label) in enumerate(steps):
+                ttk.Label(frame, text=f"{label}（{step}）").grid(row=row, column=0, sticky="w", padx=4, pady=3)
+                make_cycle_button(frame, "取整方式", variables[step]).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            frame.columnconfigure(0, weight=1)
+
+        fill_rounding_frame(value_frame, DEBUG_VALUE_STEPS, debug_value_rounding_vars)
+        fill_rounding_frame(result_frame, DEBUG_RESULT_STEPS, debug_result_rounding_vars)
+
+        def set_all(variables: dict[str, tk.StringVar], mode: str) -> None:
+            for variable in variables.values():
                 variable.set(mode)
             debug_enabled_var.set(mode != "off")
             debug_window.destroy()
             open_debug_window()
 
-        all_frame = ttk.Frame(debug_window)
+        all_frame = ttk.LabelFrame(debug_window, text="一键控制", padding=8)
         all_frame.pack(fill="x", padx=12, pady=(6, 12))
-        ttk.Button(all_frame, text="全部四舍五入", command=lambda: set_all_rounding("round")).pack(side="left", padx=(0, 6))
-        ttk.Button(all_frame, text="全部向上取整", command=lambda: set_all_rounding("ceil")).pack(side="left", padx=(0, 6))
-        ttk.Button(all_frame, text="全部向下取整", command=lambda: set_all_rounding("floor")).pack(side="left", padx=(0, 6))
-        ttk.Button(all_frame, text="全部关闭取整", command=lambda: set_all_rounding("off")).pack(side="left")
+        ttk.Label(all_frame, text="数值取整：").grid(row=0, column=0, sticky="w", padx=4, pady=3)
+        ttk.Button(all_frame, text="全部四舍五入", command=lambda: set_all(debug_value_rounding_vars, "round")).grid(row=0, column=1, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部向上取整", command=lambda: set_all(debug_value_rounding_vars, "ceil")).grid(row=0, column=2, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部向下取整", command=lambda: set_all(debug_value_rounding_vars, "floor")).grid(row=0, column=3, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部关闭取整", command=lambda: set_all(debug_value_rounding_vars, "off")).grid(row=0, column=4, padx=3, pady=3)
+        ttk.Label(all_frame, text="计算结果取整：").grid(row=1, column=0, sticky="w", padx=4, pady=3)
+        ttk.Button(all_frame, text="全部四舍五入", command=lambda: set_all(debug_result_rounding_vars, "round")).grid(row=1, column=1, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部向上取整", command=lambda: set_all(debug_result_rounding_vars, "ceil")).grid(row=1, column=2, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部向下取整", command=lambda: set_all(debug_result_rounding_vars, "floor")).grid(row=1, column=3, padx=3, pady=3)
+        ttk.Button(all_frame, text="全部关闭取整", command=lambda: set_all(debug_result_rounding_vars, "off")).grid(row=1, column=4, padx=3, pady=3)
 
     def toggle_damage_mode() -> None:
         if mode_var.get() == "期望":
@@ -572,8 +694,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gui", action="store_true", help="打开可视化输入界面")
     parser.add_argument("--crit-damage-only", action="store_true", help="切换为暴伤模式：暴击率系数按 1 计算")
     parser.add_argument("--debug-rounding", action="store_true", help="开启debug取整模式")
-    parser.add_argument("--rounding-mode", choices=ROUNDING_MODES, default="off", help="debug模式下所有步骤默认取整方式")
-    parser.add_argument("--round-step", action="append", default=[], metavar="STEP=MODE", help="为单个计算步骤设置取整方式，可重复使用")
+    parser.add_argument("--value-rounding-mode", choices=ROUNDING_MODES, default="off", help="debug模式下所有数值默认取整方式")
+    parser.add_argument("--result-rounding-mode", "--rounding-mode", dest="result_rounding_mode", choices=ROUNDING_MODES, default="off", help="debug模式下所有计算结果默认取整方式")
+    parser.add_argument("--round-value", action="append", default=[], metavar="STEP=MODE", help="为单个数值设置取整方式，可重复使用")
+    parser.add_argument("--round-result", "--round-step", dest="round_result", action="append", default=[], metavar="STEP=MODE", help="为单个计算结果设置取整方式，可重复使用")
     parser.add_argument("--atk", type=non_negative_float, help="角色 atk / 角色面板攻击力")
     parser.add_argument("--em", type=non_negative_float, help="元素精通")
     parser.add_argument("--crit-rate", type=non_negative_float, help="暴击率，例如 0.7")
@@ -588,11 +712,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_round_step_options(round_step_options: list[str], default_mode: str) -> dict[str, str]:
+def parse_round_step_options(
+    round_step_options: list[str],
+    default_mode: str,
+    steps: tuple[tuple[str, str], ...] = DEBUG_RESULT_STEPS,
+) -> dict[str, str]:
     """Parse repeated STEP=MODE CLI options into rounding modes."""
 
-    rounding_modes = default_rounding_modes(default_mode)
-    valid_steps = {step for step, _label in DEBUG_ROUNDING_STEPS}
+    rounding_modes = default_rounding_modes(default_mode, steps)
+    valid_steps = {step for step, _label in steps}
     for option in round_step_options:
         if "=" not in option:
             raise ValueError(f"取整参数格式错误：{option}，应为 STEP=MODE")
@@ -636,10 +764,15 @@ def main() -> None:
         elevation_bonus=args.elevation_bonus,
     )
     try:
-        rounding_modes = parse_round_step_options(args.round_step, args.rounding_mode)
+        value_rounding_modes = parse_round_step_options(args.round_value, args.value_rounding_mode, DEBUG_VALUE_STEPS)
+        result_rounding_modes = parse_round_step_options(args.round_result, args.result_rounding_mode, DEBUG_RESULT_STEPS)
     except ValueError as error:
         parser.error(str(error))
-    debug_config = DebugConfig(enabled=args.debug_rounding, rounding_modes=rounding_modes)
+    debug_config = DebugConfig(
+        enabled=args.debug_rounding,
+        value_rounding_modes=value_rounding_modes,
+        result_rounding_modes=result_rounding_modes,
+    )
     result = calculate_damage(
         character,
         coefficients,
