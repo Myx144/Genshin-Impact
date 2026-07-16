@@ -73,6 +73,47 @@ python damage_calculator.py --gui
 
 在可视化界面中点击“保存当前数据”后，程序会保存当前所有输入框内容和当前模式；下次运行 `python damage_calculator.py --gui` 时会自动加载这些数据。默认保存位置为用户目录下的 `.genshin_damage_calculator.json`。
 
+### Debug 取整模式
+
+如果你在对比实际游戏伤害时发现有十几点偏差，可以打开 debug 取整模式来测试每一步取整造成的影响。
+
+在 GUI 中点击计算栏里的“Debug取整”按钮，会打开单独的 debug 设置窗口。该窗口支持：
+
+- 自由开启或关闭 debug 取整模式。
+- 为每一个计算步骤单独选择取整方式：四舍五入、向上取整、向下取整、关闭取整。
+- 一键把全部计算步骤设置为同一种取整方式。
+- 点击“保存当前数据”时，也会保存当前 debug 开关和每一步取整方式，下次打开 GUI 自动加载。
+
+命令行也可以控制 debug 取整：
+
+```bash
+python damage_calculator.py \
+  --atk 2000 \
+  --em 300 \
+  --crit-rate 0.7 \
+  --crit-damage 1.4 \
+  --talent-multiplier 2.5 \
+  --debug-rounding \
+  --rounding-mode floor
+```
+
+如果只想控制某一步，可以使用 `--round-step STEP=MODE`，例如：
+
+```bash
+python damage_calculator.py \
+  --atk 2000 \
+  --em 300 \
+  --crit-rate 0.7 \
+  --crit-damage 1.4 \
+  --talent-multiplier 2.5 \
+  --debug-rounding \
+  --rounding-mode off \
+  --round-step base_area=ceil \
+  --round-step expected_damage=floor
+```
+
+可用取整模式：`off`（关闭取整）、`round`（四舍五入）、`ceil`（向上取整）、`floor`（向下取整）。可用步骤名会在计算结果中以英文 key 形式显示，例如 `multiplier_area`、`base_area`、`crit_area`、`expected_damage`。
+
 ## 使用方式
 
 百分比请用小数输入，例如 80% 输入 `0.8`，140% 输入 `1.4`。
