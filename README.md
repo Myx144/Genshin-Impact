@@ -58,6 +58,16 @@
 python damage_calculator.py --list-inputs
 ```
 
+## 可视化界面
+
+如果不想在命令行里逐个输入参数，可以打开 Tkinter 可视化界面：
+
+```bash
+python damage_calculator.py --gui
+```
+
+界面会显示所有输入框、中文字段名、是否必填、输入说明，并提供“计算伤害”和“恢复示例默认值”按钮。计算后会在窗口下方显示各分区系数和最终 `expected_damage`。
+
 ## 使用方式
 
 百分比请用小数输入，例如 80% 输入 `0.8`，140% 输入 `1.4`。

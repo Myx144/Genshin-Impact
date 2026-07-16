@@ -23,17 +23,17 @@ from dataclasses import dataclass
 
 
 INPUT_FIELDS = (
-    ("--atk", "角色 atk / 角色面板攻击力", "必填", "基础区中的角色面板，直接填角色攻击力数值"),
-    ("--em", "元素精通", "必填", "用于计算精通提升：元素精通 × 6 / (元素精通 + 2000)"),
-    ("--crit-rate", "暴击率", "必填", "用小数输入，例如 70% 填 0.7"),
-    ("--crit-damage", "暴击伤害", "必填", "用小数输入，例如 140% 填 1.4"),
-    ("--talent-multiplier", "天赋倍率", "必填", "基础区中的倍率，例如 250% 填 2.5"),
-    ("--stacks", "星超导层数", "可选，默认 0", "0 到 12，用于计算反应系数"),
-    ("--reaction-bonus", "反应提升", "可选，默认 0", "增伤区中的反应提升，用小数输入"),
-    ("--base-reaction-damage-bonus", "星反应基础伤害提升", "可选，默认 0", "加伤区中的基础伤害提升，用小数输入"),
-    ("--flat-damage-increase", "伤害提高", "可选，默认 0", "基础区末尾直接相加的固定伤害值"),
-    ("--enemy-resistance", "目标抗性", "可选，默认 0.1", "抗性区输入，可为负数；10% 填 0.1"),
-    ("--elevation-bonus", "擢升提升", "可选，默认 0", "擢升区提升，用小数输入"),
+    ("atk", "--atk", "角色 atk / 角色面板攻击力", "必填", "基础区中的角色面板，直接填角色攻击力数值", "2000"),
+    ("em", "--em", "元素精通", "必填", "用于计算精通提升：元素精通 × 6 / (元素精通 + 2000)", "300"),
+    ("crit_rate", "--crit-rate", "暴击率", "必填", "用小数输入，例如 70% 填 0.7", "0.7"),
+    ("crit_damage", "--crit-damage", "暴击伤害", "必填", "用小数输入，例如 140% 填 1.4", "1.4"),
+    ("talent_multiplier", "--talent-multiplier", "天赋倍率", "必填", "基础区中的倍率，例如 250% 填 2.5", "2.5"),
+    ("stacks", "--stacks", "星超导层数", "可选，默认 0", "0 到 12，用于计算反应系数", "0"),
+    ("reaction_bonus", "--reaction-bonus", "反应提升", "可选，默认 0", "增伤区中的反应提升，用小数输入", "0"),
+    ("base_reaction_damage_bonus", "--base-reaction-damage-bonus", "星反应基础伤害提升", "可选，默认 0", "加伤区中的基础伤害提升，用小数输入", "0"),
+    ("flat_damage_increase", "--flat-damage-increase", "伤害提高", "可选，默认 0", "基础区末尾直接相加的固定伤害值", "0"),
+    ("enemy_resistance", "--enemy-resistance", "目标抗性", "可选，默认 0.1", "抗性区输入，可为负数；10% 填 0.1", "0.1"),
+    ("elevation_bonus", "--elevation-bonus", "擢升提升", "可选，默认 0", "擢升区提升，用小数输入", "0"),
 )
 
 
@@ -138,15 +138,120 @@ def print_input_fields() -> None:
     """Print all supported input names with Chinese labels and notes."""
 
     print("所需输入数据名称（百分比统一用小数输入）：")
-    for name, chinese_name, requirement, note in INPUT_FIELDS:
-        print(f"{name}: {chinese_name}｜{requirement}｜{note}")
+    for _key, cli_name, chinese_name, requirement, note, _default in INPUT_FIELDS:
+        print(f"{cli_name}: {chinese_name}｜{requirement}｜{note}")
 
+
+
+def parse_gui_number(value: str, field_name: str, allow_negative: bool = False) -> float:
+    """Parse a GUI entry value and return a validated float."""
+
+    text = value.strip()
+    if not text:
+        raise ValueError(f"{field_name}不能为空")
+    number = float(text)
+    if not allow_negative and number < 0:
+        raise ValueError(f"{field_name}不能为负数")
+    return number
+
+
+def calculate_from_values(values: dict[str, str]) -> dict[str, float]:
+    """Build data objects from GUI text values and calculate damage."""
+
+    stacks = int(parse_gui_number(values["stacks"], "星超导层数"))
+    character = CharacterInfo(
+        atk=parse_gui_number(values["atk"], "角色 atk / 角色面板攻击力"),
+        elemental_mastery=parse_gui_number(values["em"], "元素精通"),
+        crit_rate=parse_gui_number(values["crit_rate"], "暴击率"),
+        crit_damage=parse_gui_number(values["crit_damage"], "暴击伤害"),
+    )
+    coefficients = DamageCoefficients(
+        talent_multiplier=parse_gui_number(values["talent_multiplier"], "天赋倍率"),
+        catalyze_stacks=stacks,
+        reaction_bonus=parse_gui_number(values["reaction_bonus"], "反应提升"),
+        base_reaction_damage_bonus=parse_gui_number(values["base_reaction_damage_bonus"], "星反应基础伤害提升"),
+        flat_damage_increase=parse_gui_number(values["flat_damage_increase"], "伤害提高"),
+        enemy_resistance=parse_gui_number(values["enemy_resistance"], "目标抗性", allow_negative=True),
+        elevation_bonus=parse_gui_number(values["elevation_bonus"], "擢升提升"),
+    )
+    return calculate_damage(character, coefficients)
+
+
+def run_gui() -> None:
+    """Open a Tkinter visual input interface for the damage calculator."""
+
+    import tkinter as tk
+    from tkinter import messagebox
+    from tkinter import ttk
+
+    root = tk.Tk()
+    root.title("原神星超导角色伤害计算器")
+    root.geometry("900x720")
+
+    ttk.Label(
+        root,
+        text="原神星超导角色伤害计算器",
+        font=("Arial", 18, "bold"),
+    ).pack(pady=(16, 4))
+    ttk.Label(
+        root,
+        text="百分比请用小数输入，例如 70% 填 0.7，140% 填 1.4。",
+    ).pack(pady=(0, 12))
+
+    main_frame = ttk.Frame(root, padding=12)
+    main_frame.pack(fill="both", expand=True)
+
+    input_frame = ttk.LabelFrame(main_frame, text="输入数据", padding=12)
+    input_frame.pack(fill="x")
+
+    entries: dict[str, tk.StringVar] = {}
+    for row, (key, cli_name, chinese_name, requirement, note, default) in enumerate(INPUT_FIELDS):
+        ttk.Label(input_frame, text=f"{chinese_name}（{cli_name}）").grid(row=row, column=0, sticky="w", padx=4, pady=4)
+        variable = tk.StringVar(value=default)
+        entries[key] = variable
+        ttk.Entry(input_frame, textvariable=variable, width=18).grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Label(input_frame, text=requirement).grid(row=row, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(input_frame, text=note, wraplength=390).grid(row=row, column=3, sticky="w", padx=4, pady=4)
+
+    input_frame.columnconfigure(1, weight=1)
+
+    result_frame = ttk.LabelFrame(main_frame, text="计算结果", padding=12)
+    result_frame.pack(fill="both", expand=True, pady=(12, 0))
+
+    result_text = tk.Text(result_frame, height=14, wrap="word")
+    result_text.pack(fill="both", expand=True)
+
+    def show_results() -> None:
+        try:
+            values = {key: variable.get() for key, variable in entries.items()}
+            result = calculate_from_values(values)
+        except ValueError as error:
+            messagebox.showerror("输入错误", str(error))
+            return
+
+        lines = ["原神星超导反应角色伤害计算结果", ""]
+        lines.extend(f"{key}: {value:.6f}" for key, value in result.items())
+        result_text.delete("1.0", tk.END)
+        result_text.insert(tk.END, "\n".join(lines))
+
+    def reset_defaults() -> None:
+        for key, _cli_name, _chinese_name, _requirement, _note, default in INPUT_FIELDS:
+            entries[key].set(default)
+        result_text.delete("1.0", tk.END)
+
+    button_frame = ttk.Frame(main_frame)
+    button_frame.pack(fill="x", pady=(12, 0))
+    ttk.Button(button_frame, text="计算伤害", command=show_results).pack(side="left", padx=(0, 8))
+    ttk.Button(button_frame, text="恢复示例默认值", command=reset_defaults).pack(side="left")
+
+    root.mainloop()
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="根据星超导反应公式计算原神角色期望伤害。百分比请用小数输入，如 80%% 输入 0.8。"
     )
     parser.add_argument("--list-inputs", action="store_true", help="列出所需输入的数据名称和中文说明后退出")
+    parser.add_argument("--gui", action="store_true", help="打开可视化输入界面")
     parser.add_argument("--atk", type=non_negative_float, help="角色 atk / 角色面板攻击力")
     parser.add_argument("--em", type=non_negative_float, help="元素精通")
     parser.add_argument("--crit-rate", type=non_negative_float, help="暴击率，例如 0.7")
@@ -166,6 +271,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.list_inputs:
         print_input_fields()
+        return
+    if args.gui:
+        run_gui()
         return
 
     required_inputs = ("atk", "em", "crit_rate", "crit_damage", "talent_multiplier")
