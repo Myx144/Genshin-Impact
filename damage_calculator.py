@@ -22,6 +22,21 @@ import argparse
 from dataclasses import dataclass
 
 
+INPUT_FIELDS = (
+    ("--atk", "角色 atk / 角色面板攻击力", "必填", "基础区中的角色面板，直接填角色攻击力数值"),
+    ("--em", "元素精通", "必填", "用于计算精通提升：元素精通 × 6 / (元素精通 + 2000)"),
+    ("--crit-rate", "暴击率", "必填", "用小数输入，例如 70% 填 0.7"),
+    ("--crit-damage", "暴击伤害", "必填", "用小数输入，例如 140% 填 1.4"),
+    ("--talent-multiplier", "天赋倍率", "必填", "基础区中的倍率，例如 250% 填 2.5"),
+    ("--stacks", "星超导层数", "可选，默认 0", "0 到 12，用于计算反应系数"),
+    ("--reaction-bonus", "反应提升", "可选，默认 0", "增伤区中的反应提升，用小数输入"),
+    ("--base-reaction-damage-bonus", "星反应基础伤害提升", "可选，默认 0", "加伤区中的基础伤害提升，用小数输入"),
+    ("--flat-damage-increase", "伤害提高", "可选，默认 0", "基础区末尾直接相加的固定伤害值"),
+    ("--enemy-resistance", "目标抗性", "可选，默认 0.1", "抗性区输入，可为负数；10% 填 0.1"),
+    ("--elevation-bonus", "擢升提升", "可选，默认 0", "擢升区提升，用小数输入"),
+)
+
+
 @dataclass(frozen=True)
 class CharacterInfo:
     """Character stats needed by the calculator.
@@ -119,15 +134,24 @@ def non_negative_float(value: str) -> float:
     return number
 
 
+def print_input_fields() -> None:
+    """Print all supported input names with Chinese labels and notes."""
+
+    print("所需输入数据名称（百分比统一用小数输入）：")
+    for name, chinese_name, requirement, note in INPUT_FIELDS:
+        print(f"{name}: {chinese_name}｜{requirement}｜{note}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="根据星超导反应公式计算原神角色期望伤害。百分比请用小数输入，如 80%% 输入 0.8。"
     )
-    parser.add_argument("--atk", type=non_negative_float, required=True, help="角色 atk / 角色面板攻击力")
-    parser.add_argument("--em", type=non_negative_float, required=True, help="元素精通")
-    parser.add_argument("--crit-rate", type=non_negative_float, required=True, help="暴击率，例如 0.7")
-    parser.add_argument("--crit-damage", type=non_negative_float, required=True, help="暴击伤害，例如 1.4")
-    parser.add_argument("--talent-multiplier", type=non_negative_float, required=True, help="天赋倍率，例如 2.5")
+    parser.add_argument("--list-inputs", action="store_true", help="列出所需输入的数据名称和中文说明后退出")
+    parser.add_argument("--atk", type=non_negative_float, help="角色 atk / 角色面板攻击力")
+    parser.add_argument("--em", type=non_negative_float, help="元素精通")
+    parser.add_argument("--crit-rate", type=non_negative_float, help="暴击率，例如 0.7")
+    parser.add_argument("--crit-damage", type=non_negative_float, help="暴击伤害，例如 1.4")
+    parser.add_argument("--talent-multiplier", type=non_negative_float, help="天赋倍率，例如 2.5")
     parser.add_argument("--stacks", type=int, default=0, help="星超导层数，0 到 12")
     parser.add_argument("--reaction-bonus", type=non_negative_float, default=0.0, help="反应提升")
     parser.add_argument("--base-reaction-damage-bonus", type=non_negative_float, default=0.0, help="星反应基础伤害提升")
@@ -138,7 +162,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.list_inputs:
+        print_input_fields()
+        return
+
+    required_inputs = ("atk", "em", "crit_rate", "crit_damage", "talent_multiplier")
+    missing_inputs = [f"--{name.replace('_', '-')}" for name in required_inputs if getattr(args, name) is None]
+    if missing_inputs:
+        parser.error("缺少必填参数：" + ", ".join(missing_inputs))
+
     character = CharacterInfo(
         atk=args.atk,
         elemental_mastery=args.em,
