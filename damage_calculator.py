@@ -19,7 +19,12 @@ and “倍率” means talent multiplier.
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+
+SAVE_FILE = Path.home() / ".genshin_damage_calculator.json"
 
 
 INPUT_FIELDS = (
@@ -187,6 +192,43 @@ def calculate_from_values(values: dict[str, str], crit_damage_only: bool = False
     return calculate_damage(character, coefficients, crit_damage_only=crit_damage_only)
 
 
+
+def default_gui_values() -> dict[str, str]:
+    """Return default GUI entry values keyed by input field key."""
+
+    return {key: default for key, _cli_name, _chinese_name, _requirement, _note, default in INPUT_FIELDS}
+
+
+def load_saved_gui_state(save_file: Path = SAVE_FILE) -> dict[str, object]:
+    """Load saved GUI values and mode from disk if available."""
+
+    if not save_file.exists():
+        return {"values": default_gui_values(), "mode": "期望"}
+
+    with save_file.open("r", encoding="utf-8") as file:
+        saved_state = json.load(file)
+
+    saved_values = saved_state.get("values", {})
+    values = default_gui_values()
+    for key in values:
+        if key in saved_values:
+            values[key] = str(saved_values[key])
+
+    mode = saved_state.get("mode", "期望")
+    if mode not in {"期望", "暴伤"}:
+        mode = "期望"
+
+    return {"values": values, "mode": mode}
+
+
+def save_gui_state(values: dict[str, str], mode: str, save_file: Path = SAVE_FILE) -> None:
+    """Save current GUI values and mode to disk for the next launch."""
+
+    save_file.write_text(
+        json.dumps({"values": values, "mode": mode}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
 def run_gui() -> None:
     """Open a Tkinter visual input interface for the damage calculator."""
 
@@ -214,10 +256,13 @@ def run_gui() -> None:
     input_frame = ttk.LabelFrame(main_frame, text="输入数据", padding=12)
     input_frame.pack(fill="x")
 
+    saved_state = load_saved_gui_state()
+    saved_values = saved_state["values"]
+
     entries: dict[str, tk.StringVar] = {}
     for row, (key, cli_name, chinese_name, requirement, note, default) in enumerate(INPUT_FIELDS):
         ttk.Label(input_frame, text=f"{chinese_name}（{cli_name}）").grid(row=row, column=0, sticky="w", padx=4, pady=4)
-        variable = tk.StringVar(value=default)
+        variable = tk.StringVar(value=saved_values.get(key, default))
         entries[key] = variable
         ttk.Entry(input_frame, textvariable=variable, width=18).grid(row=row, column=1, sticky="ew", padx=4, pady=4)
         ttk.Label(input_frame, text=requirement).grid(row=row, column=2, sticky="w", padx=4, pady=4)
@@ -225,8 +270,12 @@ def run_gui() -> None:
 
     input_frame.columnconfigure(1, weight=1)
 
-    summary_var = tk.StringVar(value="当前模式：期望伤害。点击“计算”后显示最终伤害")
-    mode_var = tk.StringVar(value="期望")
+    initial_mode = str(saved_state.get("mode", "期望"))
+    if initial_mode not in {"期望", "暴伤"}:
+        initial_mode = "期望"
+    initial_mode_label = "暴击伤害" if initial_mode == "暴伤" else "期望伤害"
+    summary_var = tk.StringVar(value=f"当前模式：{initial_mode_label}。点击“计算”后显示最终伤害")
+    mode_var = tk.StringVar(value=initial_mode)
 
     button_frame = ttk.Frame(main_frame)
     button_frame.pack(fill="x", pady=(12, 0))
@@ -247,7 +296,7 @@ def run_gui() -> None:
 
     def show_results() -> None:
         try:
-            values = {key: variable.get() for key, variable in entries.items()}
+            values = current_values()
             crit_damage_only = mode_var.get() == "暴伤"
             result = calculate_from_values(values, crit_damage_only=crit_damage_only)
         except ValueError as error:
@@ -269,6 +318,13 @@ def run_gui() -> None:
         summary_var.set("当前模式：期望伤害。点击“计算”后显示最终伤害")
         result_text.delete("1.0", tk.END)
 
+    def current_values() -> dict[str, str]:
+        return {key: variable.get() for key, variable in entries.items()}
+
+    def save_current_data() -> None:
+        save_gui_state(current_values(), mode_var.get())
+        messagebox.showinfo("保存成功", f"当前数据已保存，下次打开会自动加载。\n保存位置：{SAVE_FILE}")
+
     def toggle_damage_mode() -> None:
         if mode_var.get() == "期望":
             mode_var.set("暴伤")
@@ -280,6 +336,7 @@ def run_gui() -> None:
 
     ttk.Button(button_frame, text="计算", command=show_results).pack(side="left", padx=(0, 8))
     ttk.Button(button_frame, text="切换期望/暴伤", command=toggle_damage_mode).pack(side="left", padx=(0, 8))
+    ttk.Button(button_frame, text="保存当前数据", command=save_current_data).pack(side="left", padx=(0, 8))
     ttk.Button(button_frame, text="恢复示例默认值", command=reset_defaults).pack(side="left")
 
     root.mainloop()
