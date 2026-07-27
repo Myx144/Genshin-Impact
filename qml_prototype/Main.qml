@@ -573,9 +573,13 @@ ApplicationWindow {
                 }
                 background: Rectangle {
                     radius: 6
-                    color: parent.down ? "#31496f" : "#1a2943"
+                    color: pageNavigationButton.down
+                        ? "#142238"
+                        : (pageNavigationButton.hovered ? "#243a5d" : "#1a2943")
                     border.width: 1
-                    border.color: "#3d567d"
+                    border.color: pageNavigationButton.hovered ? "#5f7fab" : "#3d567d"
+                    Behavior on color { ColorAnimation { duration: 110 } }
+                    Behavior on border.color { ColorAnimation { duration: 110 } }
                 }
             }
 
@@ -660,6 +664,7 @@ ApplicationWindow {
                     Repeater {
                         model: slots
                         delegate: AppButton {
+                            id: slotButton
                             required property var modelData
                             checkable: true
                             checked: modelData.id === currentSlot
@@ -672,7 +677,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 4
                                 text: modelData.name || ("配置 " + modelData.id)
-                                color: parent.checked ? "#ffffff" : "#cbd9f4"
+                                color: slotButton.checked ? "#ffffff" : "#cbd9f4"
                                 font.pixelSize: 12
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -680,10 +685,17 @@ ApplicationWindow {
                             }
                             background: Rectangle {
                                 radius: 6
-                                color: parent.checked ? "#315fbb" : "#1a2943"
+                                color: slotButton.checked
+                                    ? (slotButton.hovered ? "#3d6fce" : "#315fbb")
+                                    : (slotButton.down
+                                        ? "#142238"
+                                        : (slotButton.hovered ? "#243a5d" : "#1a2943"))
                                 border.width: 1
-                                border.color: parent.checked ? "#7ea7ff" : "#314665"
-                                Behavior on color { ColorAnimation { duration: 140 } }
+                                border.color: slotButton.checked
+                                    ? (slotButton.hovered ? "#a0bdff" : "#7ea7ff")
+                                    : (slotButton.hovered ? "#5f7fab" : "#314665")
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                                Behavior on border.color { ColorAnimation { duration: 120 } }
                             }
                         }
                     }
@@ -726,6 +738,7 @@ ApplicationWindow {
                     }
 
                     AppButton {
+                        id: slotSaveButton
                         Layout.preferredWidth: 84
                         Layout.preferredHeight: 36
                         onClicked: saveCurrent(true)
@@ -740,8 +753,13 @@ ApplicationWindow {
                         }
                         background: Rectangle {
                             radius: 8
-                            color: parent.down ? "#4677d2" : "#5a8dee"
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                            color: slotSaveButton.down
+                                ? "#3f70c8"
+                                : (slotSaveButton.hovered ? "#6b9bf2" : "#5a8dee")
+                            border.width: 1
+                            border.color: slotSaveButton.hovered ? "#91b5ff" : "#6f9df0"
+                            Behavior on color { ColorAnimation { duration: 110 } }
+                            Behavior on border.color { ColorAnimation { duration: 110 } }
                         }
                     }
 
@@ -801,6 +819,7 @@ ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                             AppButton {
+                                id: mainInputModeButton
                                 Layout.preferredWidth: 104
                                 Layout.preferredHeight: 34
                                 onClicked: toggleInputModeAnimated()
@@ -817,10 +836,13 @@ ApplicationWindow {
                                 }
                                 background: Rectangle {
                                     radius: 6
-                                    color: parent.down ? "#354e78" : "#263b60"
+                                    color: mainInputModeButton.down
+                                        ? "#203552"
+                                        : (mainInputModeButton.hovered ? "#304d79" : "#263b60")
                                     border.width: 1
-                                    border.color: "#46658f"
-                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                    border.color: mainInputModeButton.hovered ? "#6388bd" : "#46658f"
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { ColorAnimation { duration: 110 } }
                                 }
                             }
                         }
@@ -1017,6 +1039,7 @@ ApplicationWindow {
 
                                                 TextInput {
                                                     id: conditionInput
+                                                    objectName: "conditionInput_" + modelData.key
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 7
                                                     anchors.rightMargin: 7
@@ -1036,6 +1059,13 @@ ApplicationWindow {
                                                         if (!activeFocus)
                                                             commitConditionValue(modelData.key, text)
                                                     }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: conditionInput
+                                                    acceptedButtons: Qt.NoButton
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.IBeamCursor
                                                 }
                                             }
                                         }
@@ -1062,6 +1092,7 @@ ApplicationWindow {
 
                                         TextInput {
                                             id: baseAtkInput
+                                            objectName: "baseAtkInput"
                                             anchors.fill: parent
                                             anchors.leftMargin: 7
                                             anchors.rightMargin: 7
@@ -1081,6 +1112,13 @@ ApplicationWindow {
                                                 if (!activeFocus)
                                                     commitInputValue("base_atk_input", text)
                                             }
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: baseAtkInput
+                                            acceptedButtons: Qt.NoButton
+                                            hoverEnabled: true
+                                            cursorShape: Qt.IBeamCursor
                                         }
                                     }
                                     Label {
@@ -1139,6 +1177,7 @@ ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                             AppButton {
+                                id: calculateDamageButton
                                 Layout.preferredWidth: 132
                                 Layout.preferredHeight: 46
                                 onClicked: calculateDamage()
@@ -1154,8 +1193,13 @@ ApplicationWindow {
                                 }
                                 background: Rectangle {
                                     radius: 8
-                                    color: parent.down ? "#4677d2" : "#5a8dee"
-                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                    color: calculateDamageButton.down
+                                        ? "#3f70c8"
+                                        : (calculateDamageButton.hovered ? "#6b9bf2" : "#5a8dee")
+                                    border.width: 1
+                                    border.color: calculateDamageButton.hovered ? "#91b5ff" : "#6f9df0"
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { ColorAnimation { duration: 110 } }
                                 }
                             }
                         }
