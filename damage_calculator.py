@@ -51,7 +51,7 @@ DEBUG_VALUE_STEPS = (
     ("base_reaction_damage_bonus", "星反应基础伤害提升"),
     ("flat_damage_increase", "伤害提高"),
     ("enemy_resistance", "目标抗性"),
-    ("elevation_bonus", "攫升提升"),
+    ("elevation_bonus", "擢升提升"),
 )
 DEBUG_RESULT_STEPS = (
     ("reaction_coefficient", "反应系数计算结果"),
@@ -63,7 +63,7 @@ DEBUG_RESULT_STEPS = (
     ("crit_rate_coefficient", "暴击率系数计算结果"),
     ("crit_area", "双暴区计算结果"),
     ("resistance_area", "抗性区计算结果"),
-    ("elevation_area", "攫升区计算结果"),
+    ("elevation_area", "擢升区计算结果"),
     ("expected_damage", "最终伤害计算结果"),
 )
 DEBUG_ROUNDING_STEPS = DEBUG_RESULT_STEPS
@@ -79,7 +79,7 @@ INPUT_FIELDS = (
     ("base_reaction_damage_bonus", "星反应基础伤害提升",     "可选 默认 0", "0"),
     ("flat_damage_increase",   "伤害提高",                   "可选 默认 0", "0"),
     ("enemy_resistance",       "目标抗性",                   "可选 默认 0.1", "0.1"),
-    ("elevation_bonus",        "攫升提升",                   "可选 默认 0", "0"),
+    ("elevation_bonus",        "擢升提升",                   "可选 默认 0", "0"),
 )
 
 MAIN_PCT_FIELDS = {"crit_rate", "crit_damage", "talent_multiplier", "reaction_bonus",
@@ -298,7 +298,7 @@ def calculate_from_values(
         flat_damage_increase=parse_gui_number(values["flat_damage_increase"], "伤害提高"),
         enemy_resistance=parse_gui_number(values["enemy_resistance"], "目标抗性",
                                           allow_negative=True),
-        elevation_bonus=parse_gui_number(values["elevation_bonus"], "攫升提升"),
+        elevation_bonus=parse_gui_number(values["elevation_bonus"], "擢升提升"),
     )
     return calculate_damage(character, coefficients,
                             crit_damage_only=crit_damage_only,
@@ -335,6 +335,9 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
             values[key] = str(saved_values[key])
     if "base_atk_input" in saved_values:
         values["base_atk_input"] = str(saved_values["base_atk_input"])
+    for metadata_key in ("__slot_name__", "__auto_save__"):
+        if metadata_key in saved_values:
+            values[metadata_key] = str(saved_values[metadata_key])
     mode = saved.get("mode", "期望")
     if mode not in {"期望", "暴伤"}:
         mode = "期望"
@@ -993,7 +996,7 @@ CLI_INPUT_FIELDS = [
     ("--base-reaction-damage-bonus",    "base_reaction_damage_bonus",  "星反应基础伤害提升",         False, 0.0),
     ("--flat-damage-increase",          "flat_damage_increase",        "伤害提高",                   False, 0.0),
     ("--enemy-resistance",              "enemy_resistance",            "目标抗性",                   False, 0.1),
-    ("--elevation-bonus",              "elevation_bonus",             "攫升提升",                   False, 0.0),
+    ("--elevation-bonus",              "elevation_bonus",             "擢升提升",                   False, 0.0),
 ]
 
 
@@ -1134,7 +1137,7 @@ def _print_results(result: dict[str, float], *,
         ("base_reaction_damage_bonus", "星反应基础伤害提升"),
         ("flat_damage_increase", "伤害提高"),
         ("enemy_resistance", "目标抗性"),
-        ("elevation_bonus", "攫升提升"),
+        ("elevation_bonus", "擢升提升"),
     ]:
         val = result.get(key)
         if val is not None:
@@ -1151,7 +1154,7 @@ def _print_results(result: dict[str, float], *,
         ("crit_rate_coefficient", "暴击率系数"),
         ("crit_area", "双暴区"),
         ("resistance_area", "抗性区"),
-        ("elevation_area", "攫升区"),
+        ("elevation_area", "擢升区"),
     ]:
         val = result.get(key)
         if val is not None:

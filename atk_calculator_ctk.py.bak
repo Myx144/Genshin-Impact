@@ -16,24 +16,11 @@ STATS = ['main_flat','main_pct','sub_flat','sub_pct']
 MAXED = {'plume':{'main_flat':311},'sands':{'main_pct':0.466},'goblet':{'main_pct':0.466},'circlet':{'main_pct':0.466}}
 
 
-def open_atk_calculator(
-    parent=None,
-    atk_entry_var: tk.StringVar | None = None,
-    base_atk_var: tk.DoubleVar | None = None,
-    *,
-    standalone: bool = False,
-):
-    owns_root = parent is None
-    atk_win = ctk.CTk() if owns_root else ctk.CTkToplevel(parent)
-    persistent_enabled = not standalone
-
-    title = 'ATK计算器 - 常驻攻击力'
-    if standalone:
-        title += '（独立调试模式）'
-    atk_win.title(title)
+def open_atk_calculator(parent, atk_entry_var: tk.StringVar, base_atk_var: tk.DoubleVar):
+    atk_win = ctk.CTkToplevel(parent)
+    atk_win.title('ATK计算器 - 常驻攻击力')
     atk_win.geometry('820x700')
-    if parent is not None:
-        atk_win.transient(parent)
+    atk_win.transient(parent)
 
     container = ctk.CTkFrame(atk_win)
     container.pack(fill='both', expand=True, padx=10, pady=10)
@@ -88,8 +75,6 @@ def open_atk_calculator(
 
     # ---- 保存/加载 ----
     def _silent_save():
-        if not persistent_enabled:
-            return
         st = {'base_atk': base_entry_var.get(), 'weapon_secondary': wpn_var.get()}
         for k, sd in slot_data.items():
             st[k] = {sk: {'checked': info['check'].get(), 'value': info['entry'].get()} for sk, info in sd.items()}
@@ -99,8 +84,6 @@ def open_atk_calculator(
             pass
 
     def _silent_load():
-        if not persistent_enabled:
-            return
         if not SAVE_ATK.exists():
             return
         try:
@@ -172,8 +155,6 @@ def open_atk_calculator(
         _silent_save()
 
     def apply_to_main():
-        if standalone or atk_entry_var is None or base_atk_var is None:
-            return
         if not hasattr(atk_win, '_final') or atk_win._final is None:
             messagebox.showwarning('未计算', '请先点击「计算 ATK」后再应用', parent=atk_win)
             return
@@ -185,21 +166,9 @@ def open_atk_calculator(
     btn_frame = ctk.CTkFrame(container)
     btn_frame.pack(fill='x', pady=(6,4))
     ctk.CTkButton(btn_frame, text='计算 ATK', command=do_calc).pack(side='left', padx=4)
-    apply_button = ctk.CTkButton(
-        btn_frame,
-        text='应用到主界面',
-        command=apply_to_main,
-        state='disabled' if standalone else 'normal',
-    )
-    apply_button.pack(side='left', padx=4)
+    ctk.CTkButton(btn_frame, text='应用到主界面', command=apply_to_main).pack(side='left', padx=4)
     ctk.CTkButton(btn_frame, text='满级主词条', command=fill_maxed).pack(side='left', padx=4)
-    save_button = ctk.CTkButton(
-        btn_frame,
-        text='保存配置',
-        command=_silent_save,
-        state='disabled' if standalone else 'normal',
-    )
-    save_button.pack(side='left', padx=4)
+    ctk.CTkButton(btn_frame, text='保存配置', command=_silent_save).pack(side='left', padx=4)
 
     # ---- 结果区 ----
     result_var = tk.StringVar(value='请填写数据后点击「计算 ATK」')
@@ -214,19 +183,6 @@ def open_atk_calculator(
 
     atk_win._final = None
     atk_win._base = None
-    def close_window():
-        _silent_save()
-        atk_win.destroy()
-
-    atk_win.protocol('WM_DELETE_WINDOW', close_window)
+    atk_win.protocol('WM_DELETE_WINDOW', lambda: (_silent_save(), atk_win.destroy()))
     _silent_load()
     atk_win.after(100, atk_win.lift)
-
-    if owns_root:
-        atk_win.mainloop()
-
-
-if __name__ == '__main__':
-    ctk.set_appearance_mode('dark')
-    ctk.set_default_color_theme('dark-blue')
-    open_atk_calculator(standalone=True)
