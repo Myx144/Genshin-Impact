@@ -1,4 +1,4 @@
-"""Standalone PySide6/QML prototype for the damage calculator UI."""
+"""Primary PySide6/QML frontend for the damage calculator."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Slot, QUrl
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -38,7 +38,29 @@ from damage_calculator import (
 )
 
 
+class UgcRecognitionTask(QRunnable):
+    """Run the CPU/subprocess-heavy OCR pipeline away from the QML GUI thread."""
+
+    def __init__(self, bridge: "CalculatorBridge", image_url: str) -> None:
+        super().__init__()
+        self.bridge = bridge
+        self.image_url = image_url
+
+    @Slot()
+    def run(self) -> None:
+        self.bridge.ugcRecognitionFinished.emit(
+            self.bridge._recognize_ugc_response(self.image_url)
+        )
+
+
 class CalculatorBridge(QObject):
+    ugcRecognitionFinished = Signal(str)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._recognition_pool = QThreadPool(self)
+        self._recognition_pool.setMaxThreadCount(1)
+
     @staticmethod
     def _default_atk_config() -> dict:
         config = {"base_atk": "", "weapon_secondary": "0"}
@@ -160,8 +182,23 @@ class CalculatorBridge(QObject):
     def loadSlot(self, slot: int) -> str:
         if slot < 1 or slot > NUM_SLOTS:
             return json.dumps({"ok": False, "error": "无效的配置槽"}, ensure_ascii=False)
+        raw = self._read_raw_slot(slot)
         state = load_saved_gui_state(_slot_file(slot))
         values = state["values"]
+        raw_cond_bonuses = raw.get("cond_bonuses", {})
+        if not isinstance(raw_cond_bonuses, dict):
+            raw_cond_bonuses = {}
+        # Before static artifact-set ATK had its own field, the only set field
+        # was commonly used for the permanent 2-piece bonus. Move that legacy
+        # value once into the new static field so UGC panel ATK does not add it
+        # a second time after import.
+        if "set_bonus_permanent" not in raw_cond_bonuses:
+            legacy_set_bonus = state["cond_bonuses"].get("set_bonus", ("0", False))
+            if bool(legacy_set_bonus[1]):
+                state["cond_bonuses"]["set_bonus_permanent"] = (
+                    str(legacy_set_bonus[0]), True,
+                )
+                state["cond_bonuses"]["set_bonus"] = ("0", False)
         return json.dumps({
             "ok": True,
             "slot": slot,
@@ -199,6 +236,7 @@ class CalculatorBridge(QObject):
             if isinstance(incoming_cond, dict):
                 cond_defaults = {
                     "weapon_passive_permanent": ["0", True],
+                    "set_bonus_permanent": ["0", True],
                     "weapon_passive": ["0", False],
                     "set_bonus": ["0", False],
                     "other_pct": ["0", False],
@@ -246,8 +284,8 @@ class CalculatorBridge(QObject):
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False)
 
-    @Slot(str, result=str)
-    def recognizeUgcScreenshot(self, image_url: str) -> str:
+    @staticmethod
+    def _recognize_ugc_response(image_url: str) -> str:
         try:
             url = QUrl(image_url)
             image_path = url.toLocalFile() if url.isLocalFile() else image_url
@@ -261,11 +299,20 @@ class CalculatorBridge(QObject):
                 "error": f"UGC 截图识别失败：{error}",
             }, ensure_ascii=False)
 
+    @Slot(str, result=str)
+    def recognizeUgcScreenshot(self, image_url: str) -> str:
+        """Synchronous compatibility entrypoint used by older callers/tests."""
+        return self._recognize_ugc_response(image_url)
+
+    @Slot(str)
+    def recognizeUgcScreenshotAsync(self, image_url: str) -> None:
+        self._recognition_pool.start(UgcRecognitionTask(self, image_url))
+
 
 def main() -> int:
     app = QGuiApplication(sys.argv)
     app.setOrganizationName("GenshinImpact")
-    app.setApplicationName("DamageCalculatorQmlPrototype")
+    app.setApplicationName("GenshinDamageCalculator")
 
     bridge = CalculatorBridge()
     engine = QQmlApplicationEngine()

@@ -160,10 +160,10 @@ Item {
             Layout.preferredHeight: 70
             Layout.minimumHeight: 70
             Layout.maximumHeight: 70
-            radius: 12
-            color: "#121d32"
+            radius: 3
+            color: "#ffffff"
             border.width: 1
-            border.color: "#263958"
+            border.color: "#d5d5d0"
 
             RowLayout {
                 anchors.fill: parent
@@ -174,13 +174,13 @@ Item {
                     spacing: 2
                     Label {
                         text: "常驻 ATK 计算器"
-                        color: "#edf4ff"
+                        color: "#1e1e1c"
                         font.pixelSize: 17
                         font.weight: Font.DemiBold
                     }
                     Label {
                         text: "白值 × (1 + 武器 ATK% + 圣遗物 ATK%) + 固定 ATK"
-                        color: "#8196bd"
+                        color: "#6f6f6a"
                         font.pixelSize: 11
                     }
                 }
@@ -197,18 +197,18 @@ Item {
                         anchors.fill: parent
                         text: percentMode ? "百分数输入" : "小数输入"
                         transform: Translate { id: percentModeButtonTranslate }
-                        color: "#e5eeff"
+                        color: "#181817"
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 6
+                        radius: 3
                         color: atkPercentModeButton.down
-                            ? "#203552"
-                            : (atkPercentModeButton.hovered ? "#304d79" : "#263b60")
+                            ? "#fafafa"
+                            : (atkPercentModeButton.hovered ? "#f4f4f4" : "#f7f7f7")
                         border.width: 1
-                        border.color: atkPercentModeButton.hovered ? "#6388bd" : "#46658f"
+                        border.color: atkPercentModeButton.hovered ? "#8f8f89" : "#a4a49e"
                         Behavior on color { ColorAnimation { duration: 110 } }
                         Behavior on border.color { ColorAnimation { duration: 110 } }
                     }
@@ -233,9 +233,9 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 10
-                    color: input.activeFocus ? "#192944" : "#121d32"
+                    color: input.activeFocus ? "#ffffff" : "#ffffff"
                     border.width: 1
-                    border.color: input.activeFocus ? "#608fed" : "#263958"
+                    border.color: input.activeFocus ? "#282826" : "#d5d5d0"
 
                     Label {
                         anchors.left: parent.left
@@ -243,7 +243,7 @@ Item {
                         anchors.leftMargin: 12
                         anchors.topMargin: 9
                         text: modelData.label
-                        color: "#dce8ff"
+                        color: "#292927"
                         font.pixelSize: 12
                     }
                     Label {
@@ -252,7 +252,7 @@ Item {
                         anchors.rightMargin: 12
                         anchors.topMargin: 9
                         text: modelData.hint
-                        color: "#7f93b9"
+                        color: "#74746f"
                         font.pixelSize: 10
                     }
                     TextInput {
@@ -263,8 +263,8 @@ Item {
                         anchors.margins: 12
                         height: 25
                         text: config[modelData.key] !== undefined ? String(config[modelData.key]) : ""
-                        color: "#f0f5ff"
-                        selectionColor: "#4f7ed5"
+                        color: "#181817"
+                        selectionColor: "#202020"
                         selectedTextColor: "#ffffff"
                         selectByMouse: true
                         font.pixelSize: 14
@@ -298,10 +298,10 @@ Item {
                     Layout.minimumHeight: Layout.preferredHeight
                     Layout.maximumHeight: Layout.preferredHeight
                     Layout.alignment: Qt.AlignTop
-                    radius: 11
-                    color: "#121d32"
+                    radius: 3
+                    color: "#ffffff"
                     border.width: 1
-                    border.color: "#263958"
+                    border.color: "#d5d5d0"
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -310,7 +310,7 @@ Item {
 
                         Label {
                             text: modelData.name
-                            color: "#dfeaff"
+                            color: "#292927"
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
                             Layout.alignment: Qt.AlignHCenter
@@ -327,7 +327,7 @@ Item {
 
                                 Label {
                                     text: fieldLabel(modelData)
-                                    color: "#8fa5ce"
+                                    color: "#73736e"
                                     font.pixelSize: 10
                                 }
 
@@ -346,10 +346,10 @@ Item {
                                     Rectangle {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 31
-                                        radius: 6
-                                        color: "#101a2d"
+                                        radius: 3
+                                        color: "#ffffff"
                                         border.width: 1
-                                        border.color: fieldInput.activeFocus ? "#608fed" : "#314665"
+                                        border.color: fieldInput.activeFocus ? "#282826" : "#c7c7c1"
 
                                         TextInput {
                                             id: fieldInput
@@ -360,7 +360,7 @@ Item {
                                                 && config[artifactKey][modelData] !== undefined
                                                 ? String(config[artifactKey][modelData].value)
                                                 : "0"
-                                            color: "#edf4ff"
+                                            color: "#1e1e1c"
                                             selectByMouse: true
                                             font.pixelSize: 12
                                             verticalAlignment: TextInput.AlignVCenter
@@ -388,10 +388,10 @@ Item {
             Layout.preferredHeight: 145
             Layout.minimumHeight: 145
             Layout.maximumHeight: 145
-            radius: 12
-            color: resultVisible ? "#172845" : "#101a2d"
+            radius: 3
+            color: resultVisible ? "#ffffff" : "#ffffff"
             border.width: 1
-            border.color: resultVisible ? "#4c78cb" : "#263958"
+            border.color: resultVisible ? "#303030" : "#d5d5d0"
 
             Behavior on color { ColorAnimation { duration: 180 } }
             Behavior on border.color { ColorAnimation { duration: 180 } }
@@ -405,12 +405,12 @@ Item {
                     spacing: 3
                     Label {
                         text: errorText !== "" ? "输入错误" : "常驻 ATK"
-                        color: errorText !== "" ? "#ff9f9f" : "#96baff"
+                        color: errorText !== "" ? "#e7a79a" : "#222220"
                         font.pixelSize: 12
                     }
                     Label {
                         text: errorText !== "" ? errorText : (resultVisible ? formatNumber(result.finalAtk, 5) : "等待计算")
-                        color: "#f3f7ff"
+                        color: "#20201e"
                         font.pixelSize: resultVisible ? 29 : 19
                         font.weight: Font.DemiBold
                     }
@@ -419,7 +419,7 @@ Item {
                         text: resultVisible
                             ? "总 ATK% " + formatNumber(result.totalPercent * 100, 5) + "% · 固定 ATK " + formatNumber(result.totalFlat, 5)
                             : ""
-                        color: "#8da1c6"
+                        color: "#656560"
                         font.pixelSize: 11
                     }
                 }
@@ -434,18 +434,18 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "满级主词条"
-                        color: "#dce8ff"
+                        color: "#292927"
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 7
+                        radius: 3
                         color: fillMaxedButton.down
-                            ? "#142238"
-                            : (fillMaxedButton.hovered ? "#243a5d" : "#1a2943")
+                            ? "#fafafa"
+                            : (fillMaxedButton.hovered ? "#f7f7f7" : "#ffffff")
                         border.width: 1
-                        border.color: fillMaxedButton.hovered ? "#5f7fab" : "#3d567d"
+                        border.color: fillMaxedButton.hovered ? "#8a8a84" : "#bdbdb7"
                         Behavior on color { ColorAnimation { duration: 110 } }
                         Behavior on border.color { ColorAnimation { duration: 110 } }
                     }
@@ -459,18 +459,18 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "保存配置"
-                        color: "#dce8ff"
+                        color: "#292927"
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 7
+                        radius: 3
                         color: saveAtkConfigButton.down
-                            ? "#142238"
-                            : (saveAtkConfigButton.hovered ? "#243a5d" : "#1a2943")
+                            ? "#fafafa"
+                            : (saveAtkConfigButton.hovered ? "#f7f7f7" : "#ffffff")
                         border.width: 1
-                        border.color: saveAtkConfigButton.hovered ? "#5f7fab" : "#3d567d"
+                        border.color: saveAtkConfigButton.hovered ? "#8a8a84" : "#bdbdb7"
                         Behavior on color { ColorAnimation { duration: 110 } }
                         Behavior on border.color { ColorAnimation { duration: 110 } }
                     }
@@ -494,12 +494,12 @@ Item {
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 8
+                        radius: 3
                         color: calculateAtkButton.down
-                            ? "#3f70c8"
-                            : (calculateAtkButton.hovered ? "#6b9bf2" : "#5a8dee")
+                            ? "#363634"
+                            : (calculateAtkButton.hovered ? "#20201e" : "#1a1a1a")
                         border.width: 1
-                        border.color: calculateAtkButton.hovered ? "#91b5ff" : "#6f9df0"
+                        border.color: calculateAtkButton.hovered ? "#171717" : "#242422"
                         Behavior on color { ColorAnimation { duration: 110 } }
                         Behavior on border.color { ColorAnimation { duration: 110 } }
                     }
@@ -517,23 +517,23 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "应用到伤害计算器"
-                        color: applyToDamageButton.enabled ? "#ffffff" : "#7383a1"
+                        color: applyToDamageButton.enabled ? "#ffffff" : "#85857f"
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        radius: 8
+                        radius: 3
                         color: !applyToDamageButton.enabled
-                            ? "#202b3e"
+                            ? "#fafafa"
                             : (applyToDamageButton.down
-                                ? "#34775f"
-                                : (applyToDamageButton.hovered ? "#55b88e" : "#47a982"))
+                                ? "#30302e"
+                                : (applyToDamageButton.hovered ? "#161616" : "#252525"))
                         border.width: 1
                         border.color: !applyToDamageButton.enabled
-                            ? "#2c3950"
-                            : (applyToDamageButton.hovered ? "#7dd8b0" : "#5fc39a")
+                            ? "#d2d2cd"
+                            : (applyToDamageButton.hovered ? "#171717" : "#1d1d1b")
                         Behavior on color { ColorAnimation { duration: 110 } }
                         Behavior on border.color { ColorAnimation { duration: 110 } }
                     }

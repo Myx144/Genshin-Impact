@@ -11,12 +11,22 @@ ApplicationWindow {
     minimumWidth: 940
     minimumHeight: 760
     visible: true
-    title: "原神星超导角色伤害计算器 · QML 原型"
+    title: "原神星超导角色伤害计算器"
 
-    Material.theme: Material.Dark
-    Material.accent: "#5a8dee"
-    Material.primary: "#17223b"
-    color: "#0d1424"
+    Material.theme: Material.Light
+    Material.accent: "#1a1a1a"
+    Material.primary: "#ffffff"
+    color: "#ffffff"
+    font.family: "Microsoft YaHei UI"
+
+    // Poke-inspired tokens: compact, high-contrast frames and one quiet signal color.
+    readonly property color signalBg: "#ffffff"
+    readonly property color signalSurface: "#ffffff"
+    readonly property color signalLine: "#d5d5d0"
+    readonly property color signalText: "#181817"
+    readonly property color signalMuted: "#6f6f6a"
+    readonly property color signalAccent: "#151515"
+    readonly property color signalAccentSoft: "#ffffff"
 
     property var values: ({})
     property var slots: []
@@ -34,6 +44,7 @@ ApplicationWindow {
     property string statusMessage: "正在读取配置槽…"
     property bool autoSaveEnabled: true
     property real expectedDamage: 0
+    property real displayedExpectedDamage: 0
     property var coefficients: ({})
     property var inputGroups: [
         {"title": "角色面板", "keys": ["atk", "em", "crit_rate", "crit_damage"]},
@@ -42,13 +53,14 @@ ApplicationWindow {
     ]
     property var conditionDefinitions: [
         {"key": "weapon_passive", "label": "武器特效 ATK%（不常驻）", "percent": true},
-        {"key": "set_bonus", "label": "圣遗物套装 ATK%", "percent": true},
+        {"key": "set_bonus", "label": "圣遗物套装 ATK%（不常驻）", "percent": true},
         {"key": "other_pct", "label": "其他 ATK%", "percent": true},
         {"key": "other_flat", "label": "其他固定 ATK", "percent": false}
     ]
     property var condBonuses: defaultConditionalBonuses()
     property var conditionalBonusKeys: [
-        "weapon_passive_permanent", "weapon_passive", "set_bonus", "other_pct", "other_flat"
+        "weapon_passive_permanent", "set_bonus_permanent",
+        "weapon_passive", "set_bonus", "other_pct", "other_flat"
     ]
     property real effectiveAtkValue: 0
     property bool effectiveAtkValid: true
@@ -58,6 +70,9 @@ ApplicationWindow {
     property int ugcSelectedIndex: 0
     property var ugcRecognitionInfo: ({})
     property string ugcRecognitionError: ""
+    property bool ugcRecognitionBusy: false
+    property bool ugcImportedFieldsLocked: false
+    property var ugcPreviousFieldValues: ({})
 
     function initializeValues() {
         const defaults = ({})
@@ -135,6 +150,7 @@ ApplicationWindow {
     function defaultConditionalBonuses() {
         return {
             "weapon_passive_permanent": {"value": "0", "enabled": true},
+            "set_bonus_permanent": {"value": "0", "enabled": true},
             "weapon_passive": {"value": "0", "enabled": false},
             "set_bonus": {"value": "0", "enabled": false},
             "other_pct": {"value": "0", "enabled": false},
@@ -180,18 +196,26 @@ ApplicationWindow {
         updateEffectiveAtk()
     }
 
-    function commitPermanentWeaponValue(value) {
+    function commitPermanentBonusValue(key, value) {
         const next = normalizeConditionalBonuses(condBonuses)
-        next["weapon_passive_permanent"].value = trimDecimalText(value)
-        next["weapon_passive_permanent"].enabled = true
+        next[key].value = trimDecimalText(value)
+        next[key].enabled = true
         condBonuses = next
         updateEffectiveAtk()
     }
 
-    function permanentWeaponPercent() {
-        const entry = condBonuses["weapon_passive_permanent"]
+    function permanentBonusPercent(key) {
+        const entry = condBonuses[key]
         const value = Number(entry === undefined ? 0 : (entry.value || 0))
         return mainPctMode ? value / 100.0 : value
+    }
+
+    function permanentWeaponPercent() {
+        return permanentBonusPercent("weapon_passive_permanent")
+    }
+
+    function permanentSetBonusPercent() {
+        return permanentBonusPercent("set_bonus_permanent")
     }
 
     function ugcPanelIncludesPermanentWeapon() {
@@ -201,12 +225,14 @@ ApplicationWindow {
     function effectiveAtkSummary() {
         const panelAtk = Number(values["atk"] || 0)
         const baseAtk = Number(values["base_atk_input"] || 0)
-        const permanentPercent = permanentWeaponPercent()
-        if (!isFinite(panelAtk) || !isFinite(baseAtk) || !isFinite(permanentPercent))
+        const permanentWeapon = permanentWeaponPercent()
+        const permanentSetBonus = permanentSetBonusPercent()
+        if (!isFinite(panelAtk) || !isFinite(baseAtk)
+                || !isFinite(permanentWeapon) || !isFinite(permanentSetBonus))
             return {"valid": false, "effective": 0, "percent": 0, "flat": 0,
                     "panel": panelAtk, "base": baseAtk}
 
-        let percent = permanentPercent
+        let percent = permanentWeapon + permanentSetBonus
         let flat = 0
         for (let index = 0; index < conditionDefinitions.length; index++) {
             const definition = conditionDefinitions[index]
@@ -225,11 +251,12 @@ ApplicationWindow {
 
         let panelBase = panelAtk
         if (ugcPanelIncludesPermanentWeapon()) {
-            const importedPermanent = Number(values["__ugc_weapon_permanent_at_import__"] || 0)
-            if (!isFinite(importedPermanent))
+            const importedWeaponPermanent = Number(values["__ugc_weapon_permanent_at_import__"] || 0)
+            const importedSetPermanent = Number(values["__ugc_set_bonus_permanent_at_import__"] || 0)
+            if (!isFinite(importedWeaponPermanent) || !isFinite(importedSetPermanent))
                 return {"valid": false, "effective": 0, "percent": 0, "flat": 0,
                         "panel": panelAtk, "base": baseAtk}
-            panelBase -= baseAtk * importedPermanent
+            panelBase -= baseAtk * (importedWeaponPermanent + importedSetPermanent)
         }
 
         return {
@@ -258,6 +285,7 @@ ApplicationWindow {
         if (key === "atk") {
             next["__ugc_atk_includes_weapon_permanent__"] = "False"
             next["__ugc_weapon_permanent_at_import__"] = "0"
+            next["__ugc_set_bonus_permanent_at_import__"] = "0"
         }
         values = next
         if (key === "atk" || key === "base_atk_input")
@@ -283,6 +311,7 @@ ApplicationWindow {
             setStatusMessage(response.error)
             return
         }
+        clearUgcFieldLock(false)
         currentSlot = slot
         values = normalizeInputValues(response.values)
         slotName = response.name
@@ -348,6 +377,7 @@ ApplicationWindow {
     }
 
     function applyAtkResult(atkValue, baseValue) {
+        clearUgcFieldLock(false)
         const next = ({})
         for (const key in values)
             next[key] = values[key]
@@ -355,6 +385,7 @@ ApplicationWindow {
         next["base_atk_input"] = trimDecimalText(baseValue)
         next["__ugc_atk_includes_weapon_permanent__"] = "False"
         next["__ugc_weapon_permanent_at_import__"] = "0"
+        next["__ugc_set_bonus_permanent_at_import__"] = "0"
         values = next
         updateEffectiveAtk()
         if (autoSaveEnabled)
@@ -363,9 +394,51 @@ ApplicationWindow {
         showDamagePage()
     }
 
+    function isUgcRecognizedField(key) {
+        return key === "atk" || key === "crit_rate" || key === "crit_damage"
+            || key === "base_atk_input"
+    }
+
+    function clearUgcFieldLock(restoreValues) {
+        if (restoreValues && ugcImportedFieldsLocked) {
+            const restored = ({})
+            for (const key in values)
+                restored[key] = values[key]
+            for (const key in ugcPreviousFieldValues)
+                restored[key] = ugcPreviousFieldValues[key]
+            values = restored
+            updateEffectiveAtk()
+            resultVisible = false
+            lastError = ""
+            if (autoSaveEnabled)
+                saveCurrent(false)
+            setStatusMessage("已撤销截图数据并恢复原值")
+        }
+        ugcImportedFieldsLocked = false
+        ugcPreviousFieldValues = ({})
+    }
+
+    function cancelUgcImportedValues() {
+        clearUgcFieldLock(true)
+    }
+
     function recognizeUgcScreenshot(fileUrl) {
+        if (ugcRecognitionBusy)
+            return
+        ugcRecognitionBusy = true
+        ugcRecognitionError = ""
         setStatusMessage("正在识别 UGC 面板截图…")
-        const response = JSON.parse(calculatorBridge.recognizeUgcScreenshot(String(fileUrl)))
+        calculatorBridge.recognizeUgcScreenshotAsync(String(fileUrl))
+    }
+
+    function finishUgcRecognition(payload) {
+        ugcRecognitionBusy = false
+        let response
+        try {
+            response = JSON.parse(payload)
+        } catch (error) {
+            response = {"ok": false, "error": "截图识别返回了无效结果"}
+        }
         if (!response.ok) {
             ugcRecognitionError = response.error || "UGC 截图识别失败"
             ugcErrorDialog.open()
@@ -388,6 +461,24 @@ ApplicationWindow {
         if (character === undefined || character.decoded === undefined)
             return
         const decoded = character.decoded
+        if (!ugcImportedFieldsLocked) {
+            ugcPreviousFieldValues = {
+                "atk": values["atk"] !== undefined ? values["atk"] : "0",
+                "base_atk_input": values["base_atk_input"] !== undefined
+                    ? values["base_atk_input"] : "",
+                "crit_rate": values["crit_rate"] !== undefined ? values["crit_rate"] : "0",
+                "crit_damage": values["crit_damage"] !== undefined ? values["crit_damage"] : "0",
+                "__ugc_atk_includes_weapon_permanent__":
+                    values["__ugc_atk_includes_weapon_permanent__"] !== undefined
+                        ? values["__ugc_atk_includes_weapon_permanent__"] : "False",
+                "__ugc_weapon_permanent_at_import__":
+                    values["__ugc_weapon_permanent_at_import__"] !== undefined
+                        ? values["__ugc_weapon_permanent_at_import__"] : "0",
+                "__ugc_set_bonus_permanent_at_import__":
+                    values["__ugc_set_bonus_permanent_at_import__"] !== undefined
+                        ? values["__ugc_set_bonus_permanent_at_import__"] : "0"
+            }
+        }
         const next = ({})
         for (const key in values)
             next[key] = values[key]
@@ -396,14 +487,17 @@ ApplicationWindow {
         const displayFactor = mainPctMode ? 100.0 : 1.0
         next["crit_rate"] = formatNumber(Number(decoded.crit_rate) * displayFactor, 10)
         next["crit_damage"] = formatNumber(Number(decoded.crit_damage) * displayFactor, 10)
-        const permanentAtImport = permanentWeaponPercent()
-        if (!isFinite(permanentAtImport)) {
-            setStatusMessage("武器常驻 ATK% 不是有效数字")
+        const weaponPermanentAtImport = permanentWeaponPercent()
+        const setPermanentAtImport = permanentSetBonusPercent()
+        if (!isFinite(weaponPermanentAtImport) || !isFinite(setPermanentAtImport)) {
+            setStatusMessage("武器或套装常驻 ATK% 不是有效数字")
             return
         }
         next["__ugc_atk_includes_weapon_permanent__"] = "True"
-        next["__ugc_weapon_permanent_at_import__"] = formatNumber(permanentAtImport, 10)
+        next["__ugc_weapon_permanent_at_import__"] = formatNumber(weaponPermanentAtImport, 10)
+        next["__ugc_set_bonus_permanent_at_import__"] = formatNumber(setPermanentAtImport, 10)
         values = next
+        ugcImportedFieldsLocked = true
         updateEffectiveAtk()
         resultVisible = false
         lastError = ""
@@ -437,6 +531,18 @@ ApplicationWindow {
         return normalized
     }
 
+    function animateExpectedDamage(targetValue) {
+        damageCountAnimation.stop()
+        displayedExpectedDamage = 0
+        damageCountAnimation.from = 0
+        damageCountAnimation.to = Math.max(0, Number(targetValue) || 0)
+        damageCountAnimation.duration = Math.max(
+            380,
+            Math.min(780, 390 + Math.log(Math.max(1, damageCountAnimation.to)) / Math.LN10 * 55)
+        )
+        damageCountAnimation.start()
+    }
+
     function calculateDamage() {
         lastError = ""
         updateEffectiveAtk()
@@ -457,6 +563,7 @@ ApplicationWindow {
         expectedDamage = response.expectedDamage
         coefficients = response.coefficients
         resultVisible = true
+        animateExpectedDamage(expectedDamage)
         if (autoSaveEnabled)
             saveCurrent(false)
     }
@@ -482,7 +589,10 @@ ApplicationWindow {
         }
 
         const nextConditions = normalizeConditionalBonuses(condBonuses)
-        const percentConditionKeys = ["weapon_passive_permanent", "weapon_passive", "set_bonus", "other_pct"]
+        const percentConditionKeys = [
+            "weapon_passive_permanent", "set_bonus_permanent",
+            "weapon_passive", "set_bonus", "other_pct"
+        ]
         for (let index = 0; index < percentConditionKeys.length; index++) {
             const key = percentConditionKeys[index]
             const number = Number(nextConditions[key].value || 0)
@@ -493,6 +603,20 @@ ApplicationWindow {
         condBonuses = nextConditions
         mainPctMode = !mainPctMode
         updateEffectiveAtk()
+    }
+
+    NumberAnimation {
+        id: damageCountAnimation
+        target: window
+        property: "displayedExpectedDamage"
+        easing.type: Easing.OutCubic
+    }
+
+    onResultVisibleChanged: {
+        if (!resultVisible) {
+            damageCountAnimation.stop()
+            displayedExpectedDamage = 0
+        }
     }
 
     SequentialAnimation {
@@ -621,14 +745,34 @@ ApplicationWindow {
 
     header: ToolBar {
         height: 64
-        background: Rectangle { color: "#111b30" }
+        background: Rectangle { color: "#ffffff" }
 
         Item {
             anchors.fill: parent
 
-            ColumnLayout {
+            Rectangle {
+                width: 28
+                height: 28
+                radius: 14
                 anchors.left: parent.left
                 anchors.leftMargin: 28
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#ffffff"
+                border.width: 1
+                border.color: "#a6a6a0"
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 9
+                    height: 9
+                    radius: 5
+                    color: "#151515"
+                }
+            }
+
+            ColumnLayout {
+                anchors.left: parent.left
+                anchors.leftMargin: 68
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
@@ -636,12 +780,12 @@ ApplicationWindow {
                     text: "原神星超导角色伤害计算器"
                     font.pixelSize: 19
                     font.weight: Font.DemiBold
-                    color: "#eef4ff"
+                    color: "#171716"
                 }
                 Label {
-                    text: "PySide6 + QML / 使用 CTK 同一套配置槽"
+                    text: "SIGNAL CALCULATOR / QML"
                     font.pixelSize: 11
-                    color: "#8fa2c7"
+                    color: "#686863"
                 }
             }
 
@@ -662,18 +806,18 @@ ApplicationWindow {
                     anchors.fill: parent
                     text: currentPage === 0 ? "ATK 计算器" : "返回伤害计算"
                     transform: Translate { id: pageNavigationTranslate }
-                    color: "#e5eeff"
+                    color: "#181817"
                     font.pixelSize: 11
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
                 background: Rectangle {
-                    radius: 6
+                    radius: 3
                     color: pageNavigationButton.down
-                        ? "#142238"
-                        : (pageNavigationButton.hovered ? "#243a5d" : "#1a2943")
+                        ? "#fafafa"
+                        : (pageNavigationButton.hovered ? "#f7f7f7" : "#ffffff")
                     border.width: 1
-                    border.color: pageNavigationButton.hovered ? "#5f7fab" : "#3d567d"
+                    border.color: pageNavigationButton.hovered ? "#8a8a84" : "#bdbdb7"
                     Behavior on color { ColorAnimation { duration: 110 } }
                     Behavior on border.color { ColorAnimation { duration: 110 } }
                 }
@@ -686,16 +830,16 @@ ApplicationWindow {
                 anchors.right: parent.right
                 anchors.rightMargin: 24
                 anchors.verticalCenter: parent.verticalCenter
-                radius: 8
+                radius: 3
                 opacity: currentPage === 0 ? 1 : 0
                 visible: opacity > 0
                 transform: Translate {
                     y: currentPage === 0 ? 0 : -18
                     Behavior on y { NumberAnimation { duration: 190; easing.type: Easing.InCubic } }
                 }
-                color: critDamageOnly ? "#384f7a" : "#1c2b47"
+                color: critDamageOnly ? "#f8f8f8" : "#fafafa"
                 border.width: 1
-                border.color: critDamageOnly ? "#80a8ff" : "#32466d"
+                border.color: critDamageOnly ? "#1c1c1a" : "#b7b7b1"
 
                 Behavior on color { ColorAnimation { duration: 160 } }
                 Behavior on opacity { NumberAnimation { duration: 160 } }
@@ -705,7 +849,7 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     text: critDamageOnly ? "暴击伤害模式" : "期望伤害模式"
                     transform: Translate { id: modeBadgeTranslate }
-                    color: "#dce8ff"
+                    color: "#292927"
                     font.pixelSize: 12
                 }
 
@@ -725,7 +869,19 @@ ApplicationWindow {
         enabled: currentPage === 0
         visible: opacity > 0
         opacity: currentPage === 0 ? 1 : 0
-        color: "#0d1424"
+        color: "#ffffff"
+
+        Repeater {
+            model: 12
+            delegate: Rectangle {
+                width: 1
+                height: parent.height
+                x: index * parent.width / 12
+                color: "#292927"
+                opacity: 0.018
+            }
+        }
+
         transform: Translate {
             y: currentPage === 0 ? 0 : -48
             Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
@@ -734,16 +890,16 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 22
-            spacing: 12
+            anchors.margins: 20
+            spacing: 10
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
-                radius: 12
-                color: "#121d32"
+                Layout.preferredHeight: 52
+                radius: 3
+                color: "#ffffff"
                 border.width: 1
-                border.color: "#263958"
+                border.color: "#d5d5d0"
 
                 RowLayout {
                     anchors.fill: parent
@@ -752,8 +908,8 @@ ApplicationWindow {
                     spacing: 8
 
                     Label {
-                        text: "配置槽"
-                        color: "#b9cbed"
+                        text: "CONFIG"
+                        color: "#484844"
                         font.pixelSize: 12
                     }
 
@@ -773,23 +929,23 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 anchors.margins: 4
                                 text: modelData.name || ("配置 " + modelData.id)
-                                color: slotButton.checked ? "#ffffff" : "#cbd9f4"
+                                color: slotButton.checked ? "#ffffff" : "#383835"
                                 font.pixelSize: 12
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
                             background: Rectangle {
-                                radius: 6
+                                radius: 3
                                 color: slotButton.checked
-                                    ? (slotButton.hovered ? "#3d6fce" : "#315fbb")
+                                    ? (slotButton.hovered ? "#282827" : "#202020")
                                     : (slotButton.down
-                                        ? "#142238"
-                                        : (slotButton.hovered ? "#243a5d" : "#1a2943"))
+                                        ? "#fafafa"
+                                        : (slotButton.hovered ? "#f7f7f7" : "#ffffff"))
                                 border.width: 1
                                 border.color: slotButton.checked
-                                    ? (slotButton.hovered ? "#a0bdff" : "#7ea7ff")
-                                    : (slotButton.hovered ? "#5f7fab" : "#314665")
+                                    ? (slotButton.hovered ? "#151515" : "#20201e")
+                                    : (slotButton.hovered ? "#8a8a84" : "#c7c7c1")
                                 Behavior on color { ColorAnimation { duration: 120 } }
                                 Behavior on border.color { ColorAnimation { duration: 120 } }
                             }
@@ -799,12 +955,12 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 1
                         Layout.preferredHeight: 28
-                        color: "#314665"
+                        color: "#c7c7c1"
                     }
 
                     Label {
-                        text: "名称"
-                        color: "#8fa2c7"
+                        text: "NAME"
+                        color: "#686863"
                         font.pixelSize: 11
                     }
 
@@ -817,17 +973,17 @@ ApplicationWindow {
                         placeholderText: ""
                         leftPadding: 10
                         rightPadding: 10
-                        color: "#edf4ff"
+                        color: "#1e1e1c"
                         onTextEdited: slotName = text
                         onEditingFinished: {
                             if (autoSaveEnabled)
                                 saveCurrent(false)
                         }
                         background: Rectangle {
-                            radius: 7
-                            color: slotNameInput.activeFocus ? "#192944" : "#101a2d"
+                            radius: 3
+                            color: slotNameInput.activeFocus ? "#ffffff" : "#ffffff"
                             border.width: 1
-                            border.color: slotNameInput.activeFocus ? "#608fed" : "#314665"
+                            border.color: slotNameInput.activeFocus ? "#282826" : "#c7c7c1"
                             Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on border.color { ColorAnimation { duration: 120 } }
                         }
@@ -848,12 +1004,12 @@ ApplicationWindow {
                             verticalAlignment: Text.AlignVCenter
                         }
                         background: Rectangle {
-                            radius: 8
+                            radius: 3
                             color: slotSaveButton.down
-                                ? "#3f70c8"
-                                : (slotSaveButton.hovered ? "#6b9bf2" : "#5a8dee")
+                                ? "#363634"
+                                : (slotSaveButton.hovered ? "#20201e" : "#1a1a1a")
                             border.width: 1
-                            border.color: slotSaveButton.hovered ? "#91b5ff" : "#6f9df0"
+                            border.color: slotSaveButton.hovered ? "#171717" : "#242422"
                             Behavior on color { ColorAnimation { duration: 110 } }
                             Behavior on border.color { ColorAnimation { duration: 110 } }
                         }
@@ -874,7 +1030,7 @@ ApplicationWindow {
                         id: statusMessageLabel
                         visible: window.width >= 1080
                         text: statusMessage
-                        color: "#8196bd"
+                        color: "#6f6f6a"
                         font.pixelSize: 11
                         Layout.preferredWidth: visible ? 132 : 0
                         Layout.maximumWidth: 132
@@ -895,10 +1051,10 @@ ApplicationWindow {
                 Rectangle {
                     Layout.preferredWidth: 510
                     Layout.fillHeight: true
-                    radius: 14
-                    color: "#121d32"
+                    radius: 3
+                    color: "#ffffff"
                     border.width: 1
-                    border.color: "#263958"
+                    border.color: "#d5d5d0"
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -911,37 +1067,62 @@ ApplicationWindow {
                                 text: "输入数据"
                                 font.pixelSize: 16
                                 font.weight: Font.DemiBold
-                                color: "#ecf3ff"
+                                color: "#20201e"
                             }
                             Item { Layout.fillWidth: true }
                             AppButton {
                                 id: ugcImportButton
                                 Layout.preferredWidth: 94
                                 Layout.preferredHeight: 34
+                                enabled: !ugcRecognitionBusy
                                 onClicked: ugcScreenshotFileDialog.open()
                                 contentItem: Text {
                                     anchors.fill: parent
                                     text: "截图识别"
-                                    color: "#dce8ff"
+                                    color: "#292927"
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    radius: 6
+                                    radius: 3
                                     color: ugcImportButton.down
-                                        ? "#203552"
-                                        : (ugcImportButton.hovered ? "#304d79" : "#263b60")
+                                        ? "#fafafa"
+                                        : (ugcImportButton.hovered ? "#f4f4f4" : "#f7f7f7")
                                     border.width: 1
-                                    border.color: ugcImportButton.hovered ? "#6388bd" : "#46658f"
+                                    border.color: ugcImportButton.hovered ? "#8f8f89" : "#a4a49e"
                                     Behavior on color { ColorAnimation { duration: 110 } }
                                     Behavior on border.color { ColorAnimation { duration: 110 } }
+                                }
+                            }
+                            AppButton {
+                                id: cancelUgcImportButton
+                                visible: ugcImportedFieldsLocked
+                                Layout.preferredWidth: visible ? 88 : 0
+                                Layout.preferredHeight: 34
+                                text: "撤销识别"
+                                onClicked: cancelUgcImportedValues()
+                                contentItem: Text {
+                                    text: cancelUgcImportButton.text
+                                    color: "#ffffff"
+                                    font.pixelSize: 11
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    radius: 3
+                                    color: cancelUgcImportButton.down
+                                        ? "#363636"
+                                        : (cancelUgcImportButton.hovered ? "#2a2a2a" : "#171717")
+                                    border.width: 1
+                                    border.color: "#171717"
                                 }
                             }
                             AppButton {
                                 id: mainInputModeButton
                                 Layout.preferredWidth: 104
                                 Layout.preferredHeight: 34
+                                enabled: !ugcImportedFieldsLocked
                                 onClicked: toggleInputModeAnimated()
                                 contentItem: Text {
                                     id: inputModeButtonText
@@ -949,18 +1130,18 @@ ApplicationWindow {
                                     anchors.margins: 4
                                     text: mainPctMode === true ? "百分数输入" : "小数输入"
                                     transform: Translate { id: inputModeButtonTranslate }
-                                    color: "#e3ecff"
+                                    color: "#222220"
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    radius: 6
+                                    radius: 3
                                     color: mainInputModeButton.down
-                                        ? "#203552"
-                                        : (mainInputModeButton.hovered ? "#304d79" : "#263b60")
+                                        ? "#fafafa"
+                                        : (mainInputModeButton.hovered ? "#f4f4f4" : "#f7f7f7")
                                     border.width: 1
-                                    border.color: mainInputModeButton.hovered ? "#6388bd" : "#46658f"
+                                    border.color: mainInputModeButton.hovered ? "#8f8f89" : "#a4a49e"
                                     Behavior on color { ColorAnimation { duration: 110 } }
                                     Behavior on border.color { ColorAnimation { duration: 110 } }
                                 }
@@ -972,7 +1153,7 @@ ApplicationWindow {
                             text: mainPctMode ? "百分比使用 70 这样的数字输入" : "百分比使用 0.7 这样的数字输入"
                             transform: Translate { id: inputModeHintTranslate }
                             font.pixelSize: 11
-                            color: "#8196bd"
+                            color: "#6f6f6a"
                         }
 
                         ColumnLayout {
@@ -990,7 +1171,7 @@ ApplicationWindow {
 
                                     Label {
                                         text: modelData.title
-                                        color: "#9eb4dd"
+                                        color: "#575752"
                                         font.pixelSize: 11
                                         font.weight: Font.DemiBold
                                         leftPadding: 2
@@ -1006,14 +1187,20 @@ ApplicationWindow {
                                             model: modelData.keys
 
                                             delegate: Rectangle {
+                                                id: fieldBox
                                                 required property string modelData
                                                 property var fieldData: window.fieldDefinition(modelData)
+                                                objectName: "mainField_" + fieldData.key
+                                                property bool ugcLocked: ugcImportedFieldsLocked
+                                                    && isUgcRecognizedField(fieldData.key)
                                                 Layout.fillWidth: true
                                                 Layout.preferredHeight: 50
-                                                radius: 9
-                                                color: input.activeFocus ? "#192944" : "#101a2d"
+                                                radius: 3
+                                                color: ugcLocked ? "#f5f5f5" : "#ffffff"
                                                 border.width: 1
-                                                border.color: input.activeFocus ? "#608fed" : "#263958"
+                                                border.color: ugcLocked
+                                                    ? "#ddddda"
+                                                    : (input.activeFocus ? "#282826" : "#d5d5d0")
 
                                                 Behavior on color { ColorAnimation { duration: 120 } }
                                                 Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -1025,7 +1212,7 @@ ApplicationWindow {
                                                     anchors.topMargin: 5
                                                     text: fieldData.label
                                                     font.pixelSize: 11
-                                                    color: "#dbe8ff"
+                                                    color: "#2c2c29"
                                                     width: parent.width - 76
                                                     elide: Text.ElideRight
                                                 }
@@ -1037,11 +1224,12 @@ ApplicationWindow {
                                                     anchors.topMargin: 7
                                                     text: fieldData.required
                                                     font.pixelSize: 9
-                                                    color: "#7f93b9"
+                                                    color: "#74746f"
                                                 }
 
                                                 TextInput {
                                                     id: input
+                                                    objectName: "mainInput_" + fieldData.key
                                                     anchors.left: parent.left
                                                     anchors.right: parent.right
                                                     anchors.bottom: parent.bottom
@@ -1052,10 +1240,12 @@ ApplicationWindow {
                                                     text: values[fieldData.key] !== undefined
                                                         ? String(values[fieldData.key])
                                                         : String(fieldData.defaultValue)
-                                                    selectByMouse: true
+                                                    enabled: !fieldBox.ugcLocked
+                                                    opacity: enabled ? 1 : 0.52
+                                                    selectByMouse: enabled
                                                     clip: true
-                                                    color: "#f0f5ff"
-                                                    selectionColor: "#4f7ed5"
+                                                    color: "#181817"
+                                                    selectionColor: "#202020"
                                                     selectedTextColor: "#ffffff"
                                                     font.pixelSize: 13
                                                     verticalAlignment: TextInput.AlignVCenter
@@ -1086,12 +1276,14 @@ ApplicationWindow {
                         Rectangle {
                             id: conditionBonusPanel
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 146
-                            Layout.minimumHeight: 146
-                            radius: 9
-                            color: "#101a2d"
+                            // Three dense rows need 140 px after margins; keep a small
+                            // safety gap so the lower inputs never paint outside this frame.
+                            Layout.preferredHeight: 160
+                            Layout.minimumHeight: 160
+                            radius: 3
+                            color: "#ffffff"
                             border.width: 1
-                            border.color: "#2d4263"
+                            border.color: "#d8d8d4"
 
                             ColumnLayout {
                                 anchors.fill: parent
@@ -1102,23 +1294,23 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 20
                                     Label {
-                                        text: "攻击力加成 & 白值"
-                                        color: "#a9bfe7"
+                                        text: "ATK 加成"
+                                        color: "#50504c"
                                         font.pixelSize: 11
                                         font.weight: Font.DemiBold
                                     }
                                     Label {
-                                        text: "武器常驻 ATK%"
-                                        color: "#8fa7cf"
+                                        text: "武器"
+                                        color: "#63635e"
                                         font.pixelSize: 9
                                     }
                                     Rectangle {
-                                        Layout.preferredWidth: 58
+                                        Layout.preferredWidth: 48
                                         Layout.preferredHeight: 24
-                                        radius: 5
-                                        color: "#0d1729"
+                                        radius: 3
+                                        color: "#ffffff"
                                         border.width: 1
-                                        border.color: permanentWeaponInput.activeFocus ? "#608fed" : "#304665"
+                                        border.color: permanentWeaponInput.activeFocus ? "#282826" : "#c8c8c2"
                                         TextInput {
                                             id: permanentWeaponInput
                                             anchors.fill: parent
@@ -1127,7 +1319,7 @@ ApplicationWindow {
                                             text: condBonuses["weapon_passive_permanent"] !== undefined
                                                 ? String(condBonuses["weapon_passive_permanent"].value)
                                                 : "0"
-                                            color: "#edf4ff"
+                                            color: "#1e1e1c"
                                             selectByMouse: true
                                             clip: true
                                             font.pixelSize: 10
@@ -1138,11 +1330,52 @@ ApplicationWindow {
                                             }
                                             onActiveFocusChanged: {
                                                 if (!activeFocus)
-                                                    commitPermanentWeaponValue(text)
+                                                    commitPermanentBonusValue("weapon_passive_permanent", text)
                                             }
                                         }
                                         MouseArea {
                                             anchors.fill: permanentWeaponInput
+                                            acceptedButtons: Qt.NoButton
+                                            hoverEnabled: true
+                                            cursorShape: Qt.IBeamCursor
+                                        }
+                                    }
+                                    Label {
+                                        text: "套装"
+                                        color: "#63635e"
+                                        font.pixelSize: 9
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 48
+                                        Layout.preferredHeight: 24
+                                        radius: 3
+                                        color: "#ffffff"
+                                        border.width: 1
+                                        border.color: permanentSetBonusInput.activeFocus ? "#282826" : "#c8c8c2"
+                                        TextInput {
+                                            id: permanentSetBonusInput
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            text: condBonuses["set_bonus_permanent"] !== undefined
+                                                ? String(condBonuses["set_bonus_permanent"].value)
+                                                : "0"
+                                            color: "#1e1e1c"
+                                            selectByMouse: true
+                                            clip: true
+                                            font.pixelSize: 10
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            onTextEdited: {
+                                                condBonuses["set_bonus_permanent"].value = text
+                                                updateEffectiveAtk()
+                                            }
+                                            onActiveFocusChanged: {
+                                                if (!activeFocus)
+                                                    commitPermanentBonusValue("set_bonus_permanent", text)
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: permanentSetBonusInput
                                             acceptedButtons: Qt.NoButton
                                             hoverEnabled: true
                                             cursorShape: Qt.IBeamCursor
@@ -1153,7 +1386,7 @@ ApplicationWindow {
                                         text: effectiveAtkValid
                                             ? "有效 ATK: " + formatNumber(effectiveAtkValue, 5)
                                             : "有效 ATK: —"
-                                        color: effectiveAtkValid ? "#ff7272" : "#ff9f9f"
+                                        color: effectiveAtkValid ? "#e28a7e" : "#e7a79a"
                                         font.pixelSize: 12
                                         font.weight: Font.DemiBold
                                     }
@@ -1187,10 +1420,10 @@ ApplicationWindow {
                                             Rectangle {
                                                 Layout.preferredWidth: 68
                                                 Layout.preferredHeight: 27
-                                                radius: 5
-                                                color: "#0d1729"
+                                                radius: 3
+                                                color: "#ffffff"
                                                 border.width: 1
-                                                border.color: conditionInput.activeFocus ? "#608fed" : "#304665"
+                                                border.color: conditionInput.activeFocus ? "#282826" : "#c8c8c2"
                                                 opacity: conditionToggle.checked ? 1 : 0.72
 
                                                 TextInput {
@@ -1202,7 +1435,7 @@ ApplicationWindow {
                                                     text: condBonuses[modelData.key] !== undefined
                                                         ? String(condBonuses[modelData.key].value)
                                                         : "0"
-                                                    color: "#edf4ff"
+                                                    color: "#1e1e1c"
                                                     selectByMouse: true
                                                     clip: true
                                                     font.pixelSize: 11
@@ -1235,16 +1468,18 @@ ApplicationWindow {
 
                                     Label {
                                         text: "白值"
-                                        color: "#dbe8ff"
+                                        color: "#2c2c29"
                                         font.pixelSize: 10
                                     }
                                     Rectangle {
                                         Layout.preferredWidth: 86
                                         Layout.preferredHeight: 27
-                                        radius: 5
-                                        color: "#0d1729"
+                                        radius: 3
+                                        color: ugcImportedFieldsLocked ? "#f5f5f5" : "#ffffff"
                                         border.width: 1
-                                        border.color: baseAtkInput.activeFocus ? "#608fed" : "#304665"
+                                        border.color: ugcImportedFieldsLocked
+                                            ? "#ddddda"
+                                            : (baseAtkInput.activeFocus ? "#282826" : "#c8c8c2")
 
                                         TextInput {
                                             id: baseAtkInput
@@ -1255,8 +1490,10 @@ ApplicationWindow {
                                             text: values["base_atk_input"] !== undefined
                                                 ? String(values["base_atk_input"])
                                                 : ""
-                                            color: "#edf4ff"
-                                            selectByMouse: true
+                                            enabled: !ugcImportedFieldsLocked
+                                            opacity: ugcImportedFieldsLocked ? 0.52 : 1
+                                            color: "#1e1e1c"
+                                            selectByMouse: !ugcImportedFieldsLocked
                                             clip: true
                                             font.pixelSize: 11
                                             verticalAlignment: TextInput.AlignVCenter
@@ -1279,7 +1516,7 @@ ApplicationWindow {
                                     }
                                     Label {
                                         text: "角色基础 + 武器基础"
-                                        color: "#6f86ad"
+                                        color: "#797973"
                                         font.pixelSize: 9
                                     }
                                     Item { Layout.fillWidth: true }
@@ -1289,7 +1526,7 @@ ApplicationWindow {
                                             + (conditionalFlatValue !== 0
                                                 ? "  +" + formatNumber(conditionalFlatValue, 5)
                                                 : "")
-                                        color: "#8fa7cf"
+                                        color: "#63635e"
                                         font.pixelSize: 9
                                     }
                                 }
@@ -1303,10 +1540,10 @@ ApplicationWindow {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    radius: 14
-                    color: "#121d32"
+                    radius: 3
+                    color: "#ffffff"
                     border.width: 1
-                    border.color: "#263958"
+                    border.color: "#d5d5d0"
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1323,12 +1560,12 @@ ApplicationWindow {
                                     text: critDamageOnly ? "暴击伤害" : "期望伤害"
                                     transform: Translate { id: modeResultTranslate }
                                     font.pixelSize: 15
-                                    color: "#9ebeff"
+                                    color: "#1d1d1b"
                                 }
                                 Label {
-                                    text: "核心公式结果"
+                                    text: "SIGNAL OUTPUT"
                                     font.pixelSize: 11
-                                    color: "#8196bd"
+                                    color: "#6f6f6a"
                                 }
                             }
                             Item { Layout.fillWidth: true }
@@ -1348,12 +1585,12 @@ ApplicationWindow {
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 background: Rectangle {
-                                    radius: 8
+                                    radius: 3
                                     color: calculateDamageButton.down
-                                        ? "#3f70c8"
-                                        : (calculateDamageButton.hovered ? "#6b9bf2" : "#5a8dee")
+                                        ? "#363634"
+                                        : (calculateDamageButton.hovered ? "#20201e" : "#1a1a1a")
                                     border.width: 1
-                                    border.color: calculateDamageButton.hovered ? "#91b5ff" : "#6f9df0"
+                                    border.color: calculateDamageButton.hovered ? "#171717" : "#242422"
                                     Behavior on color { ColorAnimation { duration: 110 } }
                                     Behavior on border.color { ColorAnimation { duration: 110 } }
                                 }
@@ -1363,10 +1600,10 @@ ApplicationWindow {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: resultVisible ? 156 : 86
-                            radius: 12
-                            color: resultVisible ? "#172845" : "#101a2d"
+                            radius: 3
+                            color: resultVisible ? "#ffffff" : "#ffffff"
                             border.width: 1
-                            border.color: resultVisible ? "#4c78cb" : "#263958"
+                            border.color: resultVisible ? "#303030" : "#d5d5d0"
 
                             Behavior on Layout.preferredHeight {
                                 NumberAnimation { duration: 230; easing.type: Easing.OutCubic }
@@ -1381,21 +1618,20 @@ ApplicationWindow {
 
                                 Label {
                                     text: lastError !== "" ? "输入错误" : "最终伤害"
-                                    color: lastError !== "" ? "#ff9f9f" : "#96baff"
+                                    color: lastError !== "" ? "#e7a79a" : "#222220"
                                     font.pixelSize: 12
                                 }
                                 Label {
-                                    text: lastError !== "" ? lastError : (resultVisible ? formatNumber(expectedDamage, 5) : "等待计算")
-                                    color: "#f3f7ff"
+                                    text: lastError !== "" ? lastError : (resultVisible ? formatNumber(displayedExpectedDamage, 5) : "等待计算")
+                                    color: "#20201e"
                                     font.pixelSize: resultVisible ? 31 : 20
                                     font.weight: Font.DemiBold
-                                    Behavior on font.pixelSize { NumberAnimation { duration: 180 } }
                                 }
                                 Label {
                                     visible: resultVisible && lastError === ""
                                     opacity: visible ? 1 : 0
                                     text: "基础区 × 双爆区 × 抗性区 × 擢升区"
-                                    color: "#8da1c6"
+                                    color: "#656560"
                                     font.pixelSize: 11
                                     Behavior on opacity { NumberAnimation { duration: 180 } }
                                 }
@@ -1405,10 +1641,10 @@ ApplicationWindow {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            radius: 12
-                            color: "#101a2d"
+                            radius: 3
+                            color: "#ffffff"
                             border.width: 1
-                            border.color: "#263958"
+                            border.color: "#d5d5d0"
 
                             ScrollView {
                                 anchors.fill: parent
@@ -1420,8 +1656,8 @@ ApplicationWindow {
                                     spacing: 9
 
                                     Label {
-                                        text: "计算分区"
-                                        color: "#bdcff1"
+                                        text: "FORMULA CHANNELS"
+                                        color: "#43433f"
                                         font.pixelSize: 12
                                     }
 
@@ -1442,7 +1678,7 @@ ApplicationWindow {
                                             width: parent.width
                                             Label {
                                                 text: modelData[0]
-                                                color: "#90a6cf"
+                                                color: "#60605b"
                                                 font.pixelSize: 12
                                             }
                                             Item { Layout.fillWidth: true }
@@ -1450,7 +1686,7 @@ ApplicationWindow {
                                                 text: resultVisible && coefficients[modelData[1]] !== undefined
                                                     ? formatNumber(coefficients[modelData[1]], 5)
                                                     : "—"
-                                                color: "#e5eeff"
+                                                color: "#181817"
                                                 font.pixelSize: 12
                                                 font.family: "Consolas"
                                             }
@@ -1460,6 +1696,61 @@ ApplicationWindow {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: calculatorBridge
+        function onUgcRecognitionFinished(payload) {
+            finishUgcRecognition(payload)
+        }
+    }
+
+    Popup {
+        id: ugcLoadingOverlay
+        parent: Overlay.overlay
+        x: 0
+        y: 0
+        width: parent ? parent.width : window.width
+        height: parent ? parent.height : window.height
+        visible: ugcRecognitionBusy
+        modal: true
+        dim: false
+        closePolicy: Popup.NoAutoClose
+        padding: 0
+
+        background: Rectangle {
+            color: "#f2ffffff"
+            border.width: 0
+        }
+
+        contentItem: Item {
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 14
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 48
+                    Layout.preferredHeight: 48
+                    running: ugcRecognitionBusy
+                    palette.dark: "#171717"
+                    palette.highlight: "#171717"
+                }
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "正在识别截图"
+                    color: "#171717"
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                }
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "正在校准安全区并读取四组角色数据，请稍候…"
+                    color: "#6f6f6a"
+                    font.pixelSize: 11
                 }
             }
         }
@@ -1480,17 +1771,17 @@ ApplicationWindow {
         modal: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            radius: 12
-            color: "#121d32"
+            radius: 3
+            color: "#ffffff"
             border.width: 1
-            border.color: "#6e4050"
+            border.color: "#9b3c3c"
         }
         contentItem: ColumnLayout {
             spacing: 16
             Label {
                 Layout.fillWidth: true
                 text: "截图识别失败"
-                color: "#ff9f9f"
+                color: "#e7a79a"
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
             }
@@ -1498,7 +1789,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: ugcRecognitionError
                 wrapMode: Text.Wrap
-                color: "#dce8ff"
+                color: "#292927"
                 font.pixelSize: 12
             }
             AppButton {
@@ -1520,10 +1811,10 @@ ApplicationWindow {
         modal: true
         closePolicy: Popup.CloseOnEscape
         background: Rectangle {
-            radius: 14
-            color: "#0f192c"
+            radius: 3
+            color: "#ffffff"
             border.width: 1
-            border.color: "#41628e"
+            border.color: "#70706b"
         }
         contentItem: ColumnLayout {
             spacing: 14
@@ -1534,14 +1825,14 @@ ApplicationWindow {
                     spacing: 2
                     Label {
                         text: "UGC 角色面板识别结果"
-                        color: "#edf4ff"
+                        color: "#1e1e1c"
                         font.pixelSize: 18
                         font.weight: Font.DemiBold
                     }
                     Label {
                         text: "已通过四个白色方块校准安全区 · OCR: "
                             + String(ugcRecognitionInfo.ocrBackend || "—")
-                        color: "#8196bd"
+                        color: "#6f6f6a"
                         font.pixelSize: 10
                     }
                 }
@@ -1573,12 +1864,12 @@ ApplicationWindow {
                         onClicked: ugcSelectedIndex = index
 
                         background: Rectangle {
-                            radius: 11
+                            radius: 3
                             color: ugcCharacterCard.checked
-                                ? (ugcCharacterCard.hovered ? "#203b66" : "#192f51")
-                                : (ugcCharacterCard.hovered ? "#172741" : "#111c30")
+                                ? (ugcCharacterCard.hovered ? "#fafafa" : "#fafafa")
+                                : (ugcCharacterCard.hovered ? "#ffffff" : "#ffffff")
                             border.width: ugcCharacterCard.checked ? 2 : 1
-                            border.color: ugcCharacterCard.checked ? "#6f9ff3" : "#2b405f"
+                            border.color: ugcCharacterCard.checked ? "#232323" : "#d8d8d3"
                             Behavior on color { ColorAnimation { duration: 110 } }
                         }
 
@@ -1588,42 +1879,42 @@ ApplicationWindow {
                             spacing: 8
                             Label {
                                 text: modelData.name
-                                color: "#edf4ff"
+                                color: "#1e1e1c"
                                 font.pixelSize: 15
                                 font.weight: Font.DemiBold
                             }
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 1
-                                color: "#314665"
+                                color: "#c7c7c1"
                             }
-                            Label { text: "ATK"; color: "#8196bd"; font.pixelSize: 10 }
+                            Label { text: "ATK"; color: "#6f6f6a"; font.pixelSize: 10 }
                             Label {
                                 text: modelData.display.atk
-                                color: "#ffffff"
+                                color: "#171717"
                                 font.pixelSize: 20
                                 font.weight: Font.DemiBold
                             }
                             Label {
                                 text: "白值  " + modelData.display.basicAtk
-                                color: "#b9cbed"
+                                color: "#484844"
                                 font.pixelSize: 11
                             }
                             Label {
                                 text: "暴击率  " + modelData.display.critRatePercent + "%"
-                                color: "#b9cbed"
+                                color: "#484844"
                                 font.pixelSize: 11
                             }
                             Label {
                                 text: "暴击伤害  " + modelData.display.critDamagePercent + "%"
-                                color: "#b9cbed"
+                                color: "#484844"
                                 font.pixelSize: 11
                             }
                             Item { Layout.fillHeight: true }
                             Label {
                                 Layout.fillWidth: true
                                 text: "原始：" + modelData.raw.atk
-                                color: "#657ca4"
+                                color: "#777773"
                                 font.pixelSize: 9
                                 elide: Text.ElideRight
                             }
@@ -1636,7 +1927,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Label {
                     text: "选择一个角色位置后应用到当前配置槽"
-                    color: "#8196bd"
+                    color: "#6f6f6a"
                     font.pixelSize: 11
                 }
                 Item { Layout.fillWidth: true }
@@ -1653,15 +1944,23 @@ ApplicationWindow {
                     text: "应用选中角色"
                     enabled: ugcCharacters.length > ugcSelectedIndex
                     onClicked: applyUgcCharacter(ugcCharacters[ugcSelectedIndex])
+                    contentItem: Text {
+                        text: applyUgcButton.text
+                        color: applyUgcButton.enabled ? "#ffffff" : "#9a9a96"
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                     background: Rectangle {
-                        radius: 8
+                        radius: 3
                         color: !applyUgcButton.enabled
-                            ? "#202b3e"
+                            ? "#fafafa"
                             : (applyUgcButton.down
-                                ? "#34775f"
-                                : (applyUgcButton.hovered ? "#55b88e" : "#47a982"))
+                                ? "#30302e"
+                                : (applyUgcButton.hovered ? "#161616" : "#252525"))
                         border.width: 1
-                        border.color: applyUgcButton.enabled ? "#6acfa3" : "#2c3950"
+                        border.color: applyUgcButton.enabled ? "#171717" : "#d2d2cd"
                     }
                 }
             }

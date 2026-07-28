@@ -321,7 +321,9 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
             "debug_enabled": False,
             "debug_value_rounding_modes": default_value_rounding_modes(),
             "debug_result_rounding_modes": default_result_rounding_modes(),
-            "cond_bonuses": {"weapon_passive": ("0", False),
+            "cond_bonuses": {"weapon_passive_permanent": ("0", True),
+                             "set_bonus_permanent": ("0", True),
+                             "weapon_passive": ("0", False),
                              "set_bonus": ("0", False),
                              "other_pct": ("0", False),
                              "other_flat": ("0", False)},
@@ -338,6 +340,7 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
     for metadata_key in (
         "__slot_name__", "__auto_save__",
         "__ugc_atk_includes_weapon_permanent__", "__ugc_weapon_permanent_at_import__",
+        "__ugc_set_bonus_permanent_at_import__",
     ):
         if metadata_key in saved_values:
             values[metadata_key] = str(saved_values[metadata_key])
@@ -359,6 +362,7 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
             dr_rm[step] = mv
     cond = saved.get("cond_bonuses", {})
     cond_defaults = {"weapon_passive_permanent": ("0", True),
+                     "set_bonus_permanent": ("0", True),
                      "weapon_passive": ("0", False), "set_bonus": ("0", False),
                      "other_pct": ("0", False), "other_flat": ("0", False)}
     cb = {}

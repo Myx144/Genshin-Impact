@@ -1,6 +1,14 @@
 # Genshin Impact Damage Calculator
 
-这是一个用于计算原神角色星超导反应期望伤害的 Python 命令行程序。
+这是一个用于计算原神角色星超导反应伤害的 Python 项目。当前主界面采用 PySide6/QML Signal UI，计算后端位于 `damage_calculator.py`。
+
+## 推荐启动方式
+
+```powershell
+python qml_prototype/main.py
+```
+
+主界面包含伤害计算、ATK 计算器、配置槽、自动保存以及 UGC 截图异步识别。
 
 ## 公式
 
@@ -61,13 +69,13 @@ python damage_calculator.py --list-inputs
 
 ## 可视化界面
 
-如果不想在命令行里逐个输入参数，可以打开 Tkinter 可视化界面：
+当前支持的主界面是 QML Signal UI：
 
-```bash
-python damage_calculator.py --gui
+```powershell
+python qml_prototype/main.py
 ```
 
-界面会显示所有输入框、中文字段名、是否必填、输入说明，并在输入区下方提供“计算”、“切换期望/暴伤”、“保存当前数据”和“恢复示例默认值”按钮。默认模式为期望伤害；点击“切换期望/暴伤”后进入暴伤模式，此时暴击率系数按 `1` 计算，即双爆区变为 `1 + 1 × 暴击伤害`。点击“计算”后，窗口会用醒目文字显示最终伤害，并在下方结果区显示各分区系数和最终 `expected_damage`。
+旧 Tkinter 界面仍可通过 `python damage_calculator.py --gui` 启动，仅作为兼容入口保留。
 
 ### 保存输入数据
 

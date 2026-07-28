@@ -24,24 +24,24 @@ AbstractButton {
             height: implicitHeight
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            radius: 4
+            radius: 2
             color: !control.enabled
-                ? "#1b2638"
+                ? "#f8f8f8"
                 : (control.checked
-                    ? (control.hovered ? "#4f8ff0" : "#347fd8")
-                    : (control.hovered ? "#1d3150" : "#111c2f"))
+                    ? (control.hovered ? "#323230" : "#2a2a28")
+                    : (control.hovered ? "#fafafa" : "#ffffff"))
             border.width: 1
             border.color: !control.enabled
-                ? "#344158"
+                ? "#c1c1bb"
                 : (control.checked
-                    ? (control.hovered ? "#9fc2ff" : "#72a7f3")
-                    : (control.hovered ? "#6686b2" : "#405777"))
+                    ? (control.hovered ? "#171717" : "#1f1f1d")
+                    : (control.hovered ? "#898983" : "#adada7"))
 
             Text {
                 anchors.centerIn: parent
                 text: "✓"
                 visible: control.checked
-                color: control.enabled ? "#ffffff" : "#7f8ca3"
+                color: control.enabled ? "#ffffff" : "#7d7d77"
                 font.pixelSize: 12
                 font.weight: Font.Bold
             }
@@ -58,7 +58,7 @@ AbstractButton {
             anchors.verticalCenter: parent.verticalCenter
             text: control.text
             font: control.font
-            color: control.enabled ? "#dce8ff" : "#6f7d96"
+            color: control.enabled ? "#292927" : "#81817b"
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
         }
