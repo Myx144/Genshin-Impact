@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Slot, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -21,6 +21,11 @@ ATK_SLOT_FIELDS = {
     "goblet": ("main_pct", "sub_flat", "sub_pct"),
     "circlet": ("main_pct", "sub_flat", "sub_pct"),
 }
+
+try:
+    from .recognition.ugc_panel import RecognitionError, recognise_ugc_panel
+except ImportError:  # Direct execution: python qml_prototype/main.py
+    from recognition.ugc_panel import RecognitionError, recognise_ugc_panel
 
 from damage_calculator import (
     INPUT_FIELDS,
@@ -193,6 +198,7 @@ class CalculatorBridge(QObject):
             incoming_cond = incoming.get("condBonuses")
             if isinstance(incoming_cond, dict):
                 cond_defaults = {
+                    "weapon_passive_permanent": ["0", True],
                     "weapon_passive": ["0", False],
                     "set_bonus": ["0", False],
                     "other_pct": ["0", False],
@@ -239,6 +245,21 @@ class CalculatorBridge(QObject):
             }, ensure_ascii=False)
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             return json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False)
+
+    @Slot(str, result=str)
+    def recognizeUgcScreenshot(self, image_url: str) -> str:
+        try:
+            url = QUrl(image_url)
+            image_path = url.toLocalFile() if url.isLocalFile() else image_url
+            result = recognise_ugc_panel(image_path)
+            return json.dumps(result, ensure_ascii=False)
+        except RecognitionError as error:
+            return json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False)
+        except Exception as error:
+            return json.dumps({
+                "ok": False,
+                "error": f"UGC 截图识别失败：{error}",
+            }, ensure_ascii=False)
 
 
 def main() -> int:

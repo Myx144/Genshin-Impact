@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Controls.Material
+import QtQuick.Dialogs
 
 ApplicationWindow {
     id: window
@@ -40,16 +41,23 @@ ApplicationWindow {
         {"title": "目标与附加", "keys": ["flat_damage_increase", "enemy_resistance", "elevation_bonus"]}
     ]
     property var conditionDefinitions: [
-        {"key": "weapon_passive", "label": "武器特效 ATK%", "percent": true},
+        {"key": "weapon_passive", "label": "武器特效 ATK%（不常驻）", "percent": true},
         {"key": "set_bonus", "label": "圣遗物套装 ATK%", "percent": true},
         {"key": "other_pct", "label": "其他 ATK%", "percent": true},
         {"key": "other_flat", "label": "其他固定 ATK", "percent": false}
     ]
     property var condBonuses: defaultConditionalBonuses()
+    property var conditionalBonusKeys: [
+        "weapon_passive_permanent", "weapon_passive", "set_bonus", "other_pct", "other_flat"
+    ]
     property real effectiveAtkValue: 0
     property bool effectiveAtkValid: true
     property real conditionalPercentValue: 0
     property real conditionalFlatValue: 0
+    property var ugcCharacters: []
+    property int ugcSelectedIndex: 0
+    property var ugcRecognitionInfo: ({})
+    property string ugcRecognitionError: ""
 
     function initializeValues() {
         const defaults = ({})
@@ -93,6 +101,8 @@ ApplicationWindow {
         savedStatusFadeAnimation.stop()
         statusMessageLabel.opacity = 1
         statusMessage = message
+        savedStatusTimer.interval = 2600
+        savedStatusTimer.start()
     }
 
     function showSavedStatus(message) {
@@ -100,6 +110,7 @@ ApplicationWindow {
         savedStatusFadeAnimation.stop()
         statusMessageLabel.opacity = 1
         statusMessage = message
+        savedStatusTimer.interval = 1800
         savedStatusTimer.start()
     }
 
@@ -123,6 +134,7 @@ ApplicationWindow {
 
     function defaultConditionalBonuses() {
         return {
+            "weapon_passive_permanent": {"value": "0", "enabled": true},
             "weapon_passive": {"value": "0", "enabled": false},
             "set_bonus": {"value": "0", "enabled": false},
             "other_pct": {"value": "0", "enabled": false},
@@ -134,8 +146,8 @@ ApplicationWindow {
         const normalized = defaultConditionalBonuses()
         if (source === undefined || source === null)
             return normalized
-        for (let index = 0; index < conditionDefinitions.length; index++) {
-            const key = conditionDefinitions[index].key
+        for (let index = 0; index < conditionalBonusKeys.length; index++) {
+            const key = conditionalBonusKeys[index]
             const entry = source[key]
             if (entry === undefined || entry === null)
                 continue
@@ -168,14 +180,33 @@ ApplicationWindow {
         updateEffectiveAtk()
     }
 
+    function commitPermanentWeaponValue(value) {
+        const next = normalizeConditionalBonuses(condBonuses)
+        next["weapon_passive_permanent"].value = trimDecimalText(value)
+        next["weapon_passive_permanent"].enabled = true
+        condBonuses = next
+        updateEffectiveAtk()
+    }
+
+    function permanentWeaponPercent() {
+        const entry = condBonuses["weapon_passive_permanent"]
+        const value = Number(entry === undefined ? 0 : (entry.value || 0))
+        return mainPctMode ? value / 100.0 : value
+    }
+
+    function ugcPanelIncludesPermanentWeapon() {
+        return String(values["__ugc_atk_includes_weapon_permanent__"] || "False") === "True"
+    }
+
     function effectiveAtkSummary() {
         const panelAtk = Number(values["atk"] || 0)
         const baseAtk = Number(values["base_atk_input"] || 0)
-        if (!isFinite(panelAtk) || !isFinite(baseAtk))
+        const permanentPercent = permanentWeaponPercent()
+        if (!isFinite(panelAtk) || !isFinite(baseAtk) || !isFinite(permanentPercent))
             return {"valid": false, "effective": 0, "percent": 0, "flat": 0,
                     "panel": panelAtk, "base": baseAtk}
 
-        let percent = 0
+        let percent = permanentPercent
         let flat = 0
         for (let index = 0; index < conditionDefinitions.length; index++) {
             const definition = conditionDefinitions[index]
@@ -191,9 +222,19 @@ ApplicationWindow {
             else
                 flat += number
         }
+
+        let panelBase = panelAtk
+        if (ugcPanelIncludesPermanentWeapon()) {
+            const importedPermanent = Number(values["__ugc_weapon_permanent_at_import__"] || 0)
+            if (!isFinite(importedPermanent))
+                return {"valid": false, "effective": 0, "percent": 0, "flat": 0,
+                        "panel": panelAtk, "base": baseAtk}
+            panelBase -= baseAtk * importedPermanent
+        }
+
         return {
             "valid": true,
-            "effective": panelAtk + baseAtk * percent + flat,
+            "effective": panelBase + baseAtk * percent + flat,
             "percent": percent,
             "flat": flat,
             "panel": panelAtk,
@@ -214,6 +255,10 @@ ApplicationWindow {
         for (const existingKey in values)
             next[existingKey] = values[existingKey]
         next[key] = trimDecimalText(value)
+        if (key === "atk") {
+            next["__ugc_atk_includes_weapon_permanent__"] = "False"
+            next["__ugc_weapon_permanent_at_import__"] = "0"
+        }
         values = next
         if (key === "atk" || key === "base_atk_input")
             updateEffectiveAtk()
@@ -308,12 +353,64 @@ ApplicationWindow {
             next[key] = values[key]
         next["atk"] = trimDecimalText(atkValue)
         next["base_atk_input"] = trimDecimalText(baseValue)
+        next["__ugc_atk_includes_weapon_permanent__"] = "False"
+        next["__ugc_weapon_permanent_at_import__"] = "0"
         values = next
         updateEffectiveAtk()
         if (autoSaveEnabled)
             saveCurrent(false)
         setStatusMessage("已从 ATK 计算器应用角色 ATK")
         showDamagePage()
+    }
+
+    function recognizeUgcScreenshot(fileUrl) {
+        setStatusMessage("正在识别 UGC 面板截图…")
+        const response = JSON.parse(calculatorBridge.recognizeUgcScreenshot(String(fileUrl)))
+        if (!response.ok) {
+            ugcRecognitionError = response.error || "UGC 截图识别失败"
+            ugcErrorDialog.open()
+            setStatusMessage(ugcRecognitionError)
+            return
+        }
+        ugcCharacters = response.characters || []
+        ugcSelectedIndex = 0
+        ugcRecognitionInfo = response
+        if (ugcCharacters.length === 0) {
+            ugcRecognitionError = "截图中没有识别到角色数据"
+            ugcErrorDialog.open()
+            return
+        }
+        ugcResultDialog.open()
+        setStatusMessage("已识别 " + ugcCharacters.length + " 个角色位置")
+    }
+
+    function applyUgcCharacter(character) {
+        if (character === undefined || character.decoded === undefined)
+            return
+        const decoded = character.decoded
+        const next = ({})
+        for (const key in values)
+            next[key] = values[key]
+        next["atk"] = trimDecimalText(decoded.atk)
+        next["base_atk_input"] = trimDecimalText(decoded.basic_atk)
+        const displayFactor = mainPctMode ? 100.0 : 1.0
+        next["crit_rate"] = formatNumber(Number(decoded.crit_rate) * displayFactor, 10)
+        next["crit_damage"] = formatNumber(Number(decoded.crit_damage) * displayFactor, 10)
+        const permanentAtImport = permanentWeaponPercent()
+        if (!isFinite(permanentAtImport)) {
+            setStatusMessage("武器常驻 ATK% 不是有效数字")
+            return
+        }
+        next["__ugc_atk_includes_weapon_permanent__"] = "True"
+        next["__ugc_weapon_permanent_at_import__"] = formatNumber(permanentAtImport, 10)
+        values = next
+        updateEffectiveAtk()
+        resultVisible = false
+        lastError = ""
+        if (autoSaveEnabled)
+            saveCurrent(false)
+        ugcResultDialog.close()
+        setStatusMessage("已应用「" + character.name + "」面板数据")
     }
 
     function toggleDamageModeAnimated() {
@@ -385,12 +482,11 @@ ApplicationWindow {
         }
 
         const nextConditions = normalizeConditionalBonuses(condBonuses)
-        for (let index = 0; index < conditionDefinitions.length; index++) {
-            const definition = conditionDefinitions[index]
-            if (!definition.percent)
-                continue
-            const number = Number(nextConditions[definition.key].value || 0)
-            nextConditions[definition.key].value = formatNumber(number * factor, 10)
+        const percentConditionKeys = ["weapon_passive_permanent", "weapon_passive", "set_bonus", "other_pct"]
+        for (let index = 0; index < percentConditionKeys.length; index++) {
+            const key = percentConditionKeys[index]
+            const number = Number(nextConditions[key].value || 0)
+            nextConditions[key].value = formatNumber(number * factor, 10)
         }
 
         values = next
@@ -819,6 +915,30 @@ ApplicationWindow {
                             }
                             Item { Layout.fillWidth: true }
                             AppButton {
+                                id: ugcImportButton
+                                Layout.preferredWidth: 94
+                                Layout.preferredHeight: 34
+                                onClicked: ugcScreenshotFileDialog.open()
+                                contentItem: Text {
+                                    anchors.fill: parent
+                                    text: "截图识别"
+                                    color: "#dce8ff"
+                                    font.pixelSize: 11
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    radius: 6
+                                    color: ugcImportButton.down
+                                        ? "#203552"
+                                        : (ugcImportButton.hovered ? "#304d79" : "#263b60")
+                                    border.width: 1
+                                    border.color: ugcImportButton.hovered ? "#6388bd" : "#46658f"
+                                    Behavior on color { ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                }
+                            }
+                            AppButton {
                                 id: mainInputModeButton
                                 Layout.preferredWidth: 104
                                 Layout.preferredHeight: 34
@@ -988,9 +1108,45 @@ ApplicationWindow {
                                         font.weight: Font.DemiBold
                                     }
                                     Label {
-                                        text: "ATK% 跟随当前输入模式"
-                                        color: "#6f86ad"
+                                        text: "武器常驻 ATK%"
+                                        color: "#8fa7cf"
                                         font.pixelSize: 9
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 58
+                                        Layout.preferredHeight: 24
+                                        radius: 5
+                                        color: "#0d1729"
+                                        border.width: 1
+                                        border.color: permanentWeaponInput.activeFocus ? "#608fed" : "#304665"
+                                        TextInput {
+                                            id: permanentWeaponInput
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            text: condBonuses["weapon_passive_permanent"] !== undefined
+                                                ? String(condBonuses["weapon_passive_permanent"].value)
+                                                : "0"
+                                            color: "#edf4ff"
+                                            selectByMouse: true
+                                            clip: true
+                                            font.pixelSize: 10
+                                            verticalAlignment: TextInput.AlignVCenter
+                                            onTextEdited: {
+                                                condBonuses["weapon_passive_permanent"].value = text
+                                                updateEffectiveAtk()
+                                            }
+                                            onActiveFocusChanged: {
+                                                if (!activeFocus)
+                                                    commitPermanentWeaponValue(text)
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: permanentWeaponInput
+                                            acceptedButtons: Qt.NoButton
+                                            hoverEnabled: true
+                                            cursorShape: Qt.IBeamCursor
+                                        }
                                     }
                                     Item { Layout.fillWidth: true }
                                     Label {
@@ -1303,6 +1459,209 @@ ApplicationWindow {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    FileDialog {
+        id: ugcScreenshotFileDialog
+        title: "选择 UGC 角色面板截图"
+        nameFilters: ["图片文件 (*.png *.jpg *.jpeg *.bmp)", "所有文件 (*)"]
+        onAccepted: recognizeUgcScreenshot(selectedFile.toString())
+    }
+
+    Dialog {
+        id: ugcErrorDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(window.width - 80, 520)
+        modal: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            radius: 12
+            color: "#121d32"
+            border.width: 1
+            border.color: "#6e4050"
+        }
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label {
+                Layout.fillWidth: true
+                text: "截图识别失败"
+                color: "#ff9f9f"
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+            Label {
+                Layout.fillWidth: true
+                text: ugcRecognitionError
+                wrapMode: Text.Wrap
+                color: "#dce8ff"
+                font.pixelSize: 12
+            }
+            AppButton {
+                Layout.alignment: Qt.AlignRight
+                Layout.preferredWidth: 92
+                Layout.preferredHeight: 36
+                text: "关闭"
+                onClicked: ugcErrorDialog.close()
+            }
+        }
+    }
+
+    Dialog {
+        id: ugcResultDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(window.width - 60, 980)
+        height: Math.min(window.height - 60, 590)
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle {
+            radius: 14
+            color: "#0f192c"
+            border.width: 1
+            border.color: "#41628e"
+        }
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            RowLayout {
+                Layout.fillWidth: true
+                ColumnLayout {
+                    spacing: 2
+                    Label {
+                        text: "UGC 角色面板识别结果"
+                        color: "#edf4ff"
+                        font.pixelSize: 18
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: "已通过四个白色方块校准安全区 · OCR: "
+                            + String(ugcRecognitionInfo.ocrBackend || "—")
+                        color: "#8196bd"
+                        font.pixelSize: 10
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    Layout.preferredWidth: 78
+                    Layout.preferredHeight: 34
+                    text: "关闭"
+                    onClicked: ugcResultDialog.close()
+                }
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                columns: 4
+                columnSpacing: 10
+
+                Repeater {
+                    model: ugcCharacters
+                    delegate: AppButton {
+                        id: ugcCharacterCard
+                        required property var modelData
+                        required property int index
+                        checkable: true
+                        checked: index === ugcSelectedIndex
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        onClicked: ugcSelectedIndex = index
+
+                        background: Rectangle {
+                            radius: 11
+                            color: ugcCharacterCard.checked
+                                ? (ugcCharacterCard.hovered ? "#203b66" : "#192f51")
+                                : (ugcCharacterCard.hovered ? "#172741" : "#111c30")
+                            border.width: ugcCharacterCard.checked ? 2 : 1
+                            border.color: ugcCharacterCard.checked ? "#6f9ff3" : "#2b405f"
+                            Behavior on color { ColorAnimation { duration: 110 } }
+                        }
+
+                        contentItem: ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 8
+                            Label {
+                                text: modelData.name
+                                color: "#edf4ff"
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 1
+                                color: "#314665"
+                            }
+                            Label { text: "ATK"; color: "#8196bd"; font.pixelSize: 10 }
+                            Label {
+                                text: modelData.display.atk
+                                color: "#ffffff"
+                                font.pixelSize: 20
+                                font.weight: Font.DemiBold
+                            }
+                            Label {
+                                text: "白值  " + modelData.display.basicAtk
+                                color: "#b9cbed"
+                                font.pixelSize: 11
+                            }
+                            Label {
+                                text: "暴击率  " + modelData.display.critRatePercent + "%"
+                                color: "#b9cbed"
+                                font.pixelSize: 11
+                            }
+                            Label {
+                                text: "暴击伤害  " + modelData.display.critDamagePercent + "%"
+                                color: "#b9cbed"
+                                font.pixelSize: 11
+                            }
+                            Item { Layout.fillHeight: true }
+                            Label {
+                                Layout.fillWidth: true
+                                text: "原始：" + modelData.raw.atk
+                                color: "#657ca4"
+                                font.pixelSize: 9
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: "选择一个角色位置后应用到当前配置槽"
+                    color: "#8196bd"
+                    font.pixelSize: 11
+                }
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    Layout.preferredWidth: 112
+                    Layout.preferredHeight: 40
+                    text: "取消"
+                    onClicked: ugcResultDialog.close()
+                }
+                AppButton {
+                    id: applyUgcButton
+                    Layout.preferredWidth: 176
+                    Layout.preferredHeight: 42
+                    text: "应用选中角色"
+                    enabled: ugcCharacters.length > ugcSelectedIndex
+                    onClicked: applyUgcCharacter(ugcCharacters[ugcSelectedIndex])
+                    background: Rectangle {
+                        radius: 8
+                        color: !applyUgcButton.enabled
+                            ? "#202b3e"
+                            : (applyUgcButton.down
+                                ? "#34775f"
+                                : (applyUgcButton.hovered ? "#55b88e" : "#47a982"))
+                        border.width: 1
+                        border.color: applyUgcButton.enabled ? "#6acfa3" : "#2c3950"
                     }
                 }
             }

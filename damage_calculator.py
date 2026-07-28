@@ -335,7 +335,10 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
             values[key] = str(saved_values[key])
     if "base_atk_input" in saved_values:
         values["base_atk_input"] = str(saved_values["base_atk_input"])
-    for metadata_key in ("__slot_name__", "__auto_save__"):
+    for metadata_key in (
+        "__slot_name__", "__auto_save__",
+        "__ugc_atk_includes_weapon_permanent__", "__ugc_weapon_permanent_at_import__",
+    ):
         if metadata_key in saved_values:
             values[metadata_key] = str(saved_values[metadata_key])
     mode = saved.get("mode", "期望")
@@ -355,7 +358,8 @@ def load_saved_gui_state(save_file: Path | None = None) -> dict[str, object]:
         if mv in ROUNDING_MODES:
             dr_rm[step] = mv
     cond = saved.get("cond_bonuses", {})
-    cond_defaults = {"weapon_passive": ("0", False), "set_bonus": ("0", False),
+    cond_defaults = {"weapon_passive_permanent": ("0", True),
+                     "weapon_passive": ("0", False), "set_bonus": ("0", False),
                      "other_pct": ("0", False), "other_flat": ("0", False)}
     cb = {}
     for k, dv in cond_defaults.items():
@@ -397,7 +401,17 @@ def save_gui_state(
     }
     payload["main_pct_mode"] = main_pct_mode
     if cond_bonuses is not None:
-        payload["cond_bonuses"] = {k: list(v) for k, v in cond_bonuses.items()}
+        existing_cond_bonuses: dict[str, object] = {}
+        if save_file.exists():
+            try:
+                existing_payload = json.loads(save_file.read_text(encoding="utf-8"))
+                existing_cond_bonuses = existing_payload.get("cond_bonuses", {})
+                if not isinstance(existing_cond_bonuses, dict):
+                    existing_cond_bonuses = {}
+            except (OSError, json.JSONDecodeError):
+                existing_cond_bonuses = {}
+        existing_cond_bonuses.update({k: list(v) for k, v in cond_bonuses.items()})
+        payload["cond_bonuses"] = existing_cond_bonuses
     save_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                          encoding="utf-8")
 

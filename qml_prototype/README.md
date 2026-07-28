@@ -23,3 +23,9 @@ python qml_prototype/main.py
 - 保存时保留尚未迁移的 Debug / 条件加成数据
 
 尚未迁移：条件 ATK 加成与 Debug 取整。
+
+## UGC 截图识别
+
+伤害页的“截图识别”按钮支持固定 UGC 面板 V1：四个白色方块用于校准安全区，识别 1～4 号位角色的 ATK、Basic ATK、Crit Rate 与 Crit DMG。
+
+数字 OCR 使用本地 Tesseract。默认自动查找 `C:\Program Files\Tesseract-OCR\tesseract.exe`，也可用环境变量 `GENSHIN_TESSERACT` 指定路径。识别结果必须经过蓝色背景验证、四方块几何验证以及 PSM 8/13 双重 OCR 一致性验证。
