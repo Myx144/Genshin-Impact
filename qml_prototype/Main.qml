@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Controls.Material
 import QtQuick.Dialogs
+import Qt5Compat.GraphicalEffects
 
 ApplicationWindow {
     id: window
@@ -44,7 +45,10 @@ ApplicationWindow {
     property string statusMessage: "正在读取配置槽…"
     property bool autoSaveEnabled: true
     property real expectedDamage: 0
-    property real displayedExpectedDamage: 0
+    property string displayedExpectedDamageText: "0"
+    property string expectedDamageTargetText: "0"
+    property int damageScrambleActiveDigit: 0
+    property int damageScrambleRandomFrame: 0
     property var coefficients: ({})
     property var inputGroups: [
         {"title": "角色面板", "keys": ["atk", "em", "crit_rate", "crit_damage"]},
@@ -71,8 +75,16 @@ ApplicationWindow {
     property var ugcRecognitionInfo: ({})
     property string ugcRecognitionError: ""
     property bool ugcRecognitionBusy: false
+    property bool sideMenuOpen: false
     property bool ugcImportedFieldsLocked: false
     property var ugcPreviousFieldValues: ({})
+
+    function toggleSideMenu() {
+        if (sideMenuDrawer.opened)
+            sideMenuDrawer.close()
+        else
+            sideMenuDrawer.open()
+    }
 
     function initializeValues() {
         const defaults = ({})
@@ -531,16 +543,58 @@ ApplicationWindow {
         return normalized
     }
 
+    function digitCount(text) {
+        let count = 0
+        for (let index = 0; index < text.length; index++) {
+            if (text.charAt(index) >= "0" && text.charAt(index) <= "9")
+                count++
+        }
+        return count
+    }
+
+    function randomDigitExcept(targetCharacter) {
+        const targetDigit = Number(targetCharacter)
+        let randomDigit = Math.floor(Math.random() * 9)
+        if (randomDigit >= targetDigit)
+            randomDigit++
+        return String(randomDigit)
+    }
+
+    function refreshScrambledDamageText() {
+        let rendered = ""
+        let digitIndex = 0
+        for (let index = 0; index < expectedDamageTargetText.length; index++) {
+            const character = expectedDamageTargetText.charAt(index)
+            const isDigit = character >= "0" && character <= "9"
+            if (!isDigit) {
+                // Show punctuation only once the digit immediately after it starts rolling.
+                if (digitIndex <= damageScrambleActiveDigit)
+                    rendered += character
+                continue
+            }
+            if (digitIndex < damageScrambleActiveDigit)
+                rendered += character
+            else if (digitIndex === damageScrambleActiveDigit)
+                rendered += randomDigitExcept(character)
+            else
+                break
+            digitIndex++
+        }
+        displayedExpectedDamageText = rendered
+    }
+
     function animateExpectedDamage(targetValue) {
-        damageCountAnimation.stop()
-        displayedExpectedDamage = 0
-        damageCountAnimation.from = 0
-        damageCountAnimation.to = Math.max(0, Number(targetValue) || 0)
-        damageCountAnimation.duration = Math.max(
-            380,
-            Math.min(780, 390 + Math.log(Math.max(1, damageCountAnimation.to)) / Math.LN10 * 55)
+        damageScrambleTimer.stop()
+        expectedDamageTargetText = formatNumber(Math.max(0, Number(targetValue) || 0), 5)
+        // Two random appearances plus the final lock per digit, capped at ~0.6 s.
+        damageScrambleTimer.interval = Math.max(
+            16,
+            Math.min(55, Math.floor(560 / Math.max(1, digitCount(expectedDamageTargetText) * 2)))
         )
-        damageCountAnimation.start()
+        damageScrambleActiveDigit = 0
+        damageScrambleRandomFrame = 0
+        refreshScrambledDamageText()
+        damageScrambleTimer.start()
     }
 
     function calculateDamage() {
@@ -605,17 +659,35 @@ ApplicationWindow {
         updateEffectiveAtk()
     }
 
-    NumberAnimation {
-        id: damageCountAnimation
-        target: window
-        property: "displayedExpectedDamage"
-        easing.type: Easing.OutCubic
+    Timer {
+        id: damageScrambleTimer
+        interval: 28
+        repeat: true
+        onTriggered: {
+            // Each active digit flashes through two wrong values, then locks.
+            if (damageScrambleRandomFrame < 1) {
+                damageScrambleRandomFrame++
+                refreshScrambledDamageText()
+                return
+            }
+            damageScrambleActiveDigit++
+            damageScrambleRandomFrame = 0
+            if (damageScrambleActiveDigit >= digitCount(expectedDamageTargetText)) {
+                displayedExpectedDamageText = expectedDamageTargetText
+                stop()
+                return
+            }
+            // The next digit starts rolling in the same frame the previous one locks.
+            refreshScrambledDamageText()
+        }
     }
 
     onResultVisibleChanged: {
         if (!resultVisible) {
-            damageCountAnimation.stop()
-            displayedExpectedDamage = 0
+            damageScrambleTimer.stop()
+            damageScrambleActiveDigit = 0
+            damageScrambleRandomFrame = 0
+            displayedExpectedDamageText = "0"
         }
     }
 
@@ -750,31 +822,25 @@ ApplicationWindow {
         Item {
             anchors.fill: parent
 
-            Rectangle {
-                width: 28
-                height: 28
-                radius: 14
-                anchors.left: parent.left
-                anchors.leftMargin: 28
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#ffffff"
-                border.width: 1
-                border.color: "#a6a6a0"
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 9
-                    height: 9
-                    radius: 5
-                    color: "#151515"
-                }
-            }
-
             ColumnLayout {
+                id: headerTitleBlock
                 anchors.left: parent.left
                 anchors.leftMargin: 68
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
+                transform: Translate {
+                    // The handle physically reaches the title; the spring makes the title
+                    // react as if it is being pushed aside rather than moving in sync.
+                    x: Math.min(310, Math.max(0,
+                        sideMenuHandle.x + sideMenuHandle.width + 14 - headerTitleBlock.anchors.leftMargin))
+                    Behavior on x {
+                        SpringAnimation {
+                            spring: 3.1
+                            damping: 0.28
+                            epsilon: 0.25
+                        }
+                    }
+                }
 
                 Label {
                     text: "原神星超导角色伤害计算器"
@@ -859,6 +925,97 @@ ApplicationWindow {
                     onClicked: toggleDamageModeAnimated()
                 }
             }
+        }
+    }
+
+    Drawer {
+        id: sideMenuDrawer
+        parent: Overlay.overlay
+        width: Math.min(300, Math.max(230, window.width * 0.27))
+        height: window.height
+        edge: Qt.LeftEdge
+        modal: true
+        dim: false
+        interactive: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        onOpened: sideMenuOpen = true
+        onClosed: sideMenuOpen = false
+
+        background: Rectangle {
+            color: "#ffffff"
+            border.width: 1
+            border.color: "#d5d5d0"
+        }
+
+        contentItem: Item {
+            // Navigation content will be added later.
+        }
+    }
+
+    Rectangle {
+        id: sideMenuHandle
+        parent: Overlay.overlay
+        // Drawer.position is 0 when closed and 1 when open, including its slide animation.
+        x: sideMenuDrawer.position * (sideMenuDrawer.width - 1)
+        y: 0
+        width: 58
+        height: 64
+        z: sideMenuDrawer.z + 1
+        color: "#ffffff"
+        border.width: 1
+        border.color: "#d5d5d0"
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 4
+
+            Repeater {
+                model: 3
+                delegate: Rectangle {
+                    width: 15
+                    height: 1
+                    radius: 1
+                    color: "#151515"
+                }
+            }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: toggleSideMenu()
+        }
+    }
+
+    DropShadow {
+        id: sideMenuHandleShadow
+        parent: Overlay.overlay
+        anchors.fill: sideMenuHandle
+        source: sideMenuHandle
+        horizontalOffset: 3
+        verticalOffset: 3
+        radius: 8
+        samples: 17
+        color: "#30000000"
+        transparentBorder: true
+        z: sideMenuHandle.z - 1
+    }
+
+    Rectangle {
+        id: sideMenuShadow
+        parent: Overlay.overlay
+        x: sideMenuHandle.x + 1
+        y: 0
+        width: 24
+        height: sideMenuDrawer.height
+        z: sideMenuDrawer.z - 1
+        visible: sideMenuDrawer.visible
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "#26000000" }
+            GradientStop { position: 1.0; color: "#00000000" }
         }
     }
 
@@ -1622,10 +1779,11 @@ ApplicationWindow {
                                     font.pixelSize: 12
                                 }
                                 Label {
-                                    text: lastError !== "" ? lastError : (resultVisible ? formatNumber(displayedExpectedDamage, 5) : "等待计算")
+                                    text: lastError !== "" ? lastError : (resultVisible ? displayedExpectedDamageText : "等待计算")
                                     color: "#20201e"
                                     font.pixelSize: resultVisible ? 31 : 20
                                     font.weight: Font.DemiBold
+                                    font.family: "Consolas"
                                 }
                                 Label {
                                     visible: resultVisible && lastError === ""
@@ -1931,12 +2089,6 @@ ApplicationWindow {
                     font.pixelSize: 11
                 }
                 Item { Layout.fillWidth: true }
-                AppButton {
-                    Layout.preferredWidth: 112
-                    Layout.preferredHeight: 40
-                    text: "取消"
-                    onClicked: ugcResultDialog.close()
-                }
                 AppButton {
                     id: applyUgcButton
                     Layout.preferredWidth: 176
