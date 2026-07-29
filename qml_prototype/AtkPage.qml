@@ -7,6 +7,9 @@ Item {
 
     signal applyToDamage(string atkValue, string baseValue)
 
+    property bool darkMode: false
+    property bool furinaTheme: false
+    property bool themeTransitionRunning: false
     property bool percentMode: false
     property var config: ({})
     property bool resultVisible: false
@@ -20,6 +23,12 @@ Item {
         {"key": "goblet", "name": "空之杯", "fields": ["main_pct", "sub_flat", "sub_pct"]},
         {"key": "circlet", "name": "理之冠", "fields": ["main_pct", "sub_flat", "sub_pct"]}
     ]
+
+    function themeColor(defaultDark, defaultLight, furinaDark, furinaLight) {
+        return furinaTheme
+            ? (darkMode ? furinaDark : furinaLight)
+            : (darkMode ? defaultDark : defaultLight)
+    }
 
     function fieldLabel(field) {
         const labels = {
@@ -161,9 +170,9 @@ Item {
             Layout.minimumHeight: 70
             Layout.maximumHeight: 70
             radius: 3
-            color: "#ffffff"
+            color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
             border.width: 1
-            border.color: "#d5d5d0"
+            border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
             RowLayout {
                 anchors.fill: parent
@@ -174,13 +183,13 @@ Item {
                     spacing: 2
                     Label {
                         text: "常驻 ATK 计算器"
-                        color: "#1e1e1c"
+                        color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                         font.pixelSize: 17
                         font.weight: Font.DemiBold
                     }
                     Label {
                         text: "白值 × (1 + 武器 ATK% + 圣遗物 ATK%) + 固定 ATK"
-                        color: "#6f6f6a"
+                        color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                         font.pixelSize: 11
                     }
                 }
@@ -197,7 +206,7 @@ Item {
                         anchors.fill: parent
                         text: percentMode ? "百分数输入" : "小数输入"
                         transform: Translate { id: percentModeButtonTranslate }
-                        color: "#181817"
+                        color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -205,12 +214,12 @@ Item {
                     background: Rectangle {
                         radius: 3
                         color: atkPercentModeButton.down
-                            ? "#fafafa"
-                            : (atkPercentModeButton.hovered ? "#f4f4f4" : "#f7f7f7")
+                            ? (themeColor("#252525", "#f2f2f2", "#344a72", "#eaf0f7"))
+                            : (atkPercentModeButton.hovered ? (themeColor("#383838", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
                         border.width: 1
-                        border.color: atkPercentModeButton.hovered ? "#8f8f89" : "#a4a49e"
-                        Behavior on color { ColorAnimation { duration: 110 } }
-                        Behavior on border.color { ColorAnimation { duration: 110 } }
+                        border.color: atkPercentModeButton.hovered ? (themeColor("#707076", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#5b5b61", "#c0c0c0", "#3a5077", "#cfdceb"))
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                     }
                 }
             }
@@ -233,9 +242,9 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 10
-                    color: input.activeFocus ? "#ffffff" : "#ffffff"
+                    color: input.activeFocus ? (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                     border.width: 1
-                    border.color: input.activeFocus ? "#282826" : "#d5d5d0"
+                    border.color: input.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                     Label {
                         anchors.left: parent.left
@@ -243,7 +252,7 @@ Item {
                         anchors.leftMargin: 12
                         anchors.topMargin: 9
                         text: modelData.label
-                        color: "#292927"
+                        color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                         font.pixelSize: 12
                     }
                     Label {
@@ -252,7 +261,7 @@ Item {
                         anchors.rightMargin: 12
                         anchors.topMargin: 9
                         text: modelData.hint
-                        color: "#74746f"
+                        color: (themeColor("#8b8b90", "#727272", "#8293ae", "#8795aa"))
                         font.pixelSize: 10
                     }
                     TextInput {
@@ -263,9 +272,9 @@ Item {
                         anchors.margins: 12
                         height: 25
                         text: config[modelData.key] !== undefined ? String(config[modelData.key]) : ""
-                        color: "#181817"
-                        selectionColor: "#202020"
-                        selectedTextColor: "#ffffff"
+                        color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
+                        selectionColor: (themeColor("#dfdfdf", "#202020", "#55d7fa", "#30488f"))
+                        selectedTextColor: (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff"))
                         selectByMouse: true
                         font.pixelSize: 14
                         verticalAlignment: TextInput.AlignVCenter
@@ -299,9 +308,9 @@ Item {
                     Layout.maximumHeight: Layout.preferredHeight
                     Layout.alignment: Qt.AlignTop
                     radius: 3
-                    color: "#ffffff"
+                    color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                     border.width: 1
-                    border.color: "#d5d5d0"
+                    border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -310,7 +319,7 @@ Item {
 
                         Label {
                             text: modelData.name
-                            color: "#292927"
+                            color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                             font.pixelSize: 13
                             font.weight: Font.DemiBold
                             Layout.alignment: Qt.AlignHCenter
@@ -327,7 +336,7 @@ Item {
 
                                 Label {
                                     text: fieldLabel(modelData)
-                                    color: "#73736e"
+                                    color: (themeColor("#8c8c91", "#727272", "#8293ae", "#8795aa"))
                                     font.pixelSize: 10
                                 }
 
@@ -347,9 +356,9 @@ Item {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 31
                                         radius: 3
-                                        color: "#ffffff"
+                                        color: (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                         border.width: 1
-                                        border.color: fieldInput.activeFocus ? "#282826" : "#c7c7c1"
+                                        border.color: fieldInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
 
                                         TextInput {
                                             id: fieldInput
@@ -360,7 +369,7 @@ Item {
                                                 && config[artifactKey][modelData] !== undefined
                                                 ? String(config[artifactKey][modelData].value)
                                                 : "0"
-                                            color: "#1e1e1c"
+                                            color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                                             selectByMouse: true
                                             font.pixelSize: 12
                                             verticalAlignment: TextInput.AlignVCenter
@@ -389,12 +398,12 @@ Item {
             Layout.minimumHeight: 145
             Layout.maximumHeight: 145
             radius: 3
-            color: resultVisible ? "#ffffff" : "#ffffff"
+            color: resultVisible ? (themeColor("#252525", "#ffffff", "#192543", "#ffffff")) : (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
             border.width: 1
-            border.color: resultVisible ? "#303030" : "#d5d5d0"
+            border.color: resultVisible ? (themeColor("#686868", "#303030", "#62bfe8", "#30488f")) : (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
-            Behavior on color { ColorAnimation { duration: 180 } }
-            Behavior on border.color { ColorAnimation { duration: 180 } }
+            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+            Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
 
             RowLayout {
                 anchors.fill: parent
@@ -405,12 +414,12 @@ Item {
                     spacing: 3
                     Label {
                         text: errorText !== "" ? "输入错误" : "常驻 ATK"
-                        color: errorText !== "" ? "#e7a79a" : "#222220"
+                        color: errorText !== "" ? (themeColor("#ffaaa0", "#e7a79a", "#ff9a91", "#e77e78")) : (themeColor("#dddddf", "#222220", "#dbe5f3", "#24304a"))
                         font.pixelSize: 12
                     }
                     Label {
                         text: errorText !== "" ? errorText : (resultVisible ? formatNumber(result.finalAtk, 5) : "等待计算")
-                        color: "#20201e"
+                        color: (themeColor("#dfdfe1", "#20201e", "#f3f7fd", "#18223e"))
                         font.pixelSize: resultVisible ? 29 : 19
                         font.weight: Font.DemiBold
                     }
@@ -419,7 +428,7 @@ Item {
                         text: resultVisible
                             ? "总 ATK% " + formatNumber(result.totalPercent * 100, 5) + "% · 固定 ATK " + formatNumber(result.totalFlat, 5)
                             : ""
-                        color: "#656560"
+                        color: (themeColor("#9a9a9f", "#666666", "#8293ae", "#8795aa"))
                         font.pixelSize: 11
                     }
                 }
@@ -434,7 +443,7 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "满级主词条"
-                        color: "#292927"
+                        color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -442,12 +451,12 @@ Item {
                     background: Rectangle {
                         radius: 3
                         color: fillMaxedButton.down
-                            ? "#fafafa"
-                            : (fillMaxedButton.hovered ? "#f7f7f7" : "#ffffff")
+                            ? (themeColor("#383838", "#f2f2f2", "#344a72", "#eaf0f7"))
+                            : (fillMaxedButton.hovered ? (themeColor("#333333", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
                         border.width: 1
-                        border.color: fillMaxedButton.hovered ? "#8a8a84" : "#bdbdb7"
-                        Behavior on color { ColorAnimation { duration: 110 } }
-                        Behavior on border.color { ColorAnimation { duration: 110 } }
+                        border.color: fillMaxedButton.hovered ? (themeColor("#75757b", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#555555", "#e2e2e2", "#3a5077", "#d5e0ec"))
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                     }
                 }
 
@@ -459,7 +468,7 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "保存配置"
-                        color: "#292927"
+                        color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -467,12 +476,12 @@ Item {
                     background: Rectangle {
                         radius: 3
                         color: saveAtkConfigButton.down
-                            ? "#fafafa"
-                            : (saveAtkConfigButton.hovered ? "#f7f7f7" : "#ffffff")
+                            ? (themeColor("#383838", "#f2f2f2", "#344a72", "#eaf0f7"))
+                            : (saveAtkConfigButton.hovered ? (themeColor("#333333", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
                         border.width: 1
-                        border.color: saveAtkConfigButton.hovered ? "#8a8a84" : "#bdbdb7"
-                        Behavior on color { ColorAnimation { duration: 110 } }
-                        Behavior on border.color { ColorAnimation { duration: 110 } }
+                        border.color: saveAtkConfigButton.hovered ? (themeColor("#75757b", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#555555", "#e2e2e2", "#3a5077", "#d5e0ec"))
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                     }
                 }
 
@@ -487,7 +496,7 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "计算 ATK"
-                        color: "#ffffff"
+                        color: (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff"))
                         font.pixelSize: 13
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
@@ -496,12 +505,12 @@ Item {
                     background: Rectangle {
                         radius: 3
                         color: calculateAtkButton.down
-                            ? "#363634"
-                            : (calculateAtkButton.hovered ? "#20201e" : "#1a1a1a")
+                            ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                            : (calculateAtkButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f")))
                         border.width: 1
-                        border.color: calculateAtkButton.hovered ? "#171717" : "#242422"
-                        Behavior on color { ColorAnimation { duration: 110 } }
-                        Behavior on border.color { ColorAnimation { duration: 110 } }
+                        border.color: calculateAtkButton.hovered ? (themeColor("#787878", "#444444", "#6a89ba", "#3d5caa")) : (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77"))
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                     }
                 }
 
@@ -517,7 +526,7 @@ Item {
                     contentItem: Text {
                         anchors.fill: parent
                         text: "应用到伤害计算器"
-                        color: applyToDamageButton.enabled ? "#ffffff" : "#85857f"
+                        color: applyToDamageButton.enabled ? (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff")) : (themeColor("#909090", "#8a8a8a", "#66758e", "#aab4c2"))
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
@@ -526,16 +535,16 @@ Item {
                     background: Rectangle {
                         radius: 3
                         color: !applyToDamageButton.enabled
-                            ? "#fafafa"
+                            ? (themeColor("#252525", "#fafafa", "#192543", "#f8fbff"))
                             : (applyToDamageButton.down
-                                ? "#30302e"
-                                : (applyToDamageButton.hovered ? "#161616" : "#252525"))
+                                ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                                : (applyToDamageButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f"))))
                         border.width: 1
                         border.color: !applyToDamageButton.enabled
-                            ? "#d2d2cd"
-                            : (applyToDamageButton.hovered ? "#171717" : "#1d1d1b")
-                        Behavior on color { ColorAnimation { duration: 110 } }
-                        Behavior on border.color { ColorAnimation { duration: 110 } }
+                            ? (themeColor("#383838", "#e5e5e5", "#304466", "#dee8f2"))
+                            : (applyToDamageButton.hovered ? (themeColor("#787878", "#444444", "#6a89ba", "#3d5caa")) : (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77")))
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                     }
                 }
             }

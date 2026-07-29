@@ -9,25 +9,28 @@ ApplicationWindow {
     id: window
     width: 1180
     height: 820
-    minimumWidth: 940
-    minimumHeight: 760
+    minimumWidth: 1180
+    maximumWidth: 1180
+    minimumHeight: 820
+    maximumHeight: 820
     visible: true
-    title: "原神星超导角色伤害计算器"
+    flags: Qt.Window | Qt.FramelessWindowHint
+    title: "原神伤害计算器"
 
-    Material.theme: Material.Light
-    Material.accent: "#1a1a1a"
-    Material.primary: "#ffffff"
-    color: "#ffffff"
+    Material.theme: darkMode ? Material.Dark : Material.Light
+    Material.accent: (themeColor("#a6a6a6", "#1a1a1a", "#55d7fa", "#30488f"))
+    Material.primary: (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff"))
+    color: themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff")
     font.family: "Microsoft YaHei UI"
 
     // Poke-inspired tokens: compact, high-contrast frames and one quiet signal color.
-    readonly property color signalBg: "#ffffff"
-    readonly property color signalSurface: "#ffffff"
-    readonly property color signalLine: "#d5d5d0"
-    readonly property color signalText: "#181817"
-    readonly property color signalMuted: "#6f6f6a"
-    readonly property color signalAccent: "#151515"
-    readonly property color signalAccentSoft: "#ffffff"
+    readonly property color signalBg: (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff"))
+    readonly property color signalSurface: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
+    readonly property color signalLine: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
+    readonly property color signalText: (themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e"))
+    readonly property color signalMuted: (themeColor("#b7b7b7", "#616161", "#a7b6cf", "#62718c"))
+    readonly property color signalAccent: (themeColor("#d0d0d0", "#151515", "#55d7fa", "#30488f"))
+    readonly property color signalAccentSoft: (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
 
     property var values: ({})
     property var slots: []
@@ -36,6 +39,18 @@ ApplicationWindow {
     property bool critDamageOnly: false
     property bool mainPctMode: false
     property int currentPage: 0
+    property string currentDamageModule: "superconduct"
+    property bool calculationModeMenuOpen: false
+    property var damageModules: [
+        {"id": "superconduct", "title": "星超导伤害", "subtitle": "SUPERCONDUCT DAMAGE", "enabled": true}
+    ]
+    readonly property string currentDamageModuleTitle: {
+        for (let index = 0; index < damageModules.length; index++) {
+            if (damageModules[index].id === currentDamageModule)
+                return damageModules[index].title
+        }
+        return "星超导伤害"
+    }
     property int pendingPage: 0
     property bool navigationButtonAtRight: false
     property int pendingSlot: 1
@@ -44,11 +59,22 @@ ApplicationWindow {
     property string lastError: ""
     property string statusMessage: "正在读取配置槽…"
     property bool autoSaveEnabled: true
+    property bool darkMode: false
+    property bool followSystemTheme: true
+    property bool furinaTheme: false
+    property bool themeTransitionRunning: false
+    property int pendingThemeAction: 0
+    property bool pendingDarkModeValue: false
+    property color themeTransitionColor: "#151515"
     property real expectedDamage: 0
     property string displayedExpectedDamageText: "0"
     property string expectedDamageTargetText: "0"
     property int damageScrambleActiveDigit: 0
     property int damageScrambleRandomFrame: 0
+    property int damageScrambleStage: 0
+    property real damageScrambleElapsedMs: 0
+    property real damageScrambleStepMs: 24
+    property int damageScrambleRandomFrames: 3
     property var coefficients: ({})
     property var inputGroups: [
         {"title": "角色面板", "keys": ["atk", "em", "crit_rate", "crit_damage"]},
@@ -76,14 +102,101 @@ ApplicationWindow {
     property string ugcRecognitionError: ""
     property bool ugcRecognitionBusy: false
     property bool sideMenuOpen: false
+    property bool sideMenuTitlePushed: false
     property bool ugcImportedFieldsLocked: false
     property var ugcPreviousFieldValues: ({})
 
-    function toggleSideMenu() {
-        if (sideMenuDrawer.opened)
-            sideMenuDrawer.close()
+    function themeColor(defaultDark, defaultLight, furinaDark, furinaLight) {
+        return furinaTheme
+            ? (darkMode ? furinaDark : furinaLight)
+            : (darkMode ? defaultDark : defaultLight)
+    }
+
+    function beginThemeTransition(action) {
+        if (themeTransitionRunning)
+            return
+        pendingThemeAction = action
+        themeTransitionColor = (furinaTheme || action === 2) ? "#5d7bb7" : "#808080"
+        themeTransitionAnimation.start()
+    }
+
+    function setDarkModeAnimated(nextDarkMode) {
+        const next = Boolean(nextDarkMode)
+        if (themeTransitionRunning || darkMode === next)
+            return
+        pendingThemeAction = 1
+        pendingDarkModeValue = next
+        themeTransitionColor = furinaTheme ? "#5d7bb7" : "#808080"
+        themeTransitionAnimation.start()
+    }
+
+    function applySystemTheme(animated) {
+        if (!followSystemTheme)
+            return
+        const systemDark = Boolean(calculatorBridge.systemPrefersDark())
+        if (animated)
+            setDarkModeAnimated(systemDark)
         else
+            darkMode = systemDark
+    }
+
+    function setFollowSystemTheme(enabled) {
+        const next = Boolean(enabled)
+        if (followSystemTheme === next)
+            return
+        followSystemTheme = next
+        if (autoSaveEnabled)
+            saveCurrent(false)
+        if (next)
+            applySystemTheme(true)
+    }
+
+    function toggleThemeAnimated() {
+        if (followSystemTheme) {
+            followSystemTheme = false
+            if (autoSaveEnabled)
+                saveCurrent(false)
+        }
+        setDarkModeAnimated(!darkMode)
+    }
+
+    function toggleFurinaThemeAnimated() {
+        beginThemeTransition(2)
+    }
+
+    function closeCalculationModeMenu() {
+        calculationModeMenuOpen = false
+    }
+
+    function selectDamageModule(moduleId) {
+        const nextModule = String(moduleId)
+        if (nextModule !== "superconduct")
+            return
+        currentDamageModule = nextModule
+        closeCalculationModeMenu()
+        if (currentPage !== 0)
+            showDamagePage()
+    }
+
+    function toggleSideMenu() {
+        closeCalculationModeMenu()
+        if (sideMenuDrawer.opened || sideMenuDrawer.position > 0) {
+            // Start returning the title on the same input event as the drawer close.
+            sideMenuTitlePushed = false
+            sideMenuDrawer.close()
+        } else {
+            // Do not wait for Drawer.position to advance: the title starts immediately.
+            sideMenuTitlePushed = true
             sideMenuDrawer.open()
+        }
+    }
+
+    function compactSlotLabel(slot) {
+        const name = String(slot.name || "").trim()
+        const defaultName = "配置 " + slot.id
+        if (name === "" || name === defaultName)
+            return String(slot.id)
+        return name.charAt(0)
     }
 
     function initializeValues() {
@@ -317,6 +430,17 @@ ApplicationWindow {
         }
     }
 
+    function restoreTheme(theme) {
+        if (!theme || typeof theme !== "object")
+            return
+        furinaTheme = Boolean(theme.furinaTheme)
+        followSystemTheme = Boolean(theme.followSystem)
+        if (followSystemTheme)
+            applySystemTheme(false)
+        else
+            darkMode = Boolean(theme.darkMode)
+    }
+
     function loadSlot(slot) {
         const response = JSON.parse(calculatorBridge.loadSlot(slot))
         if (!response.ok) {
@@ -327,9 +451,14 @@ ApplicationWindow {
         currentSlot = slot
         values = normalizeInputValues(response.values)
         slotName = response.name
+        Qt.callLater(function() {
+            slotNameInput.cursorPosition = 0
+            slotNameInput.deselect()
+        })
         critDamageOnly = response.mode === "暴伤"
         mainPctMode = response.mainPctMode
         autoSaveEnabled = response.autoSave === undefined ? true : Boolean(response.autoSave)
+        restoreTheme(response.theme)
         condBonuses = normalizeConditionalBonuses(response.condBonuses)
         updateEffectiveAtk()
         resultVisible = false
@@ -347,6 +476,11 @@ ApplicationWindow {
                 values: values,
                 mode: critDamageOnly ? "暴伤" : "期望",
                 mainPctMode: mainPctMode,
+                theme: {
+                    followSystem: followSystemTheme,
+                    darkMode: darkMode,
+                    furinaTheme: furinaTheme
+                },
                 condBonuses: condBonuses
             })
         ))
@@ -584,17 +718,19 @@ ApplicationWindow {
     }
 
     function animateExpectedDamage(targetValue) {
-        damageScrambleTimer.stop()
+        damageScrambleFrameAnimation.stop()
         expectedDamageTargetText = formatNumber(Math.max(0, Number(targetValue) || 0), 5)
-        // Two random appearances plus the final lock per digit, capped at ~0.6 s.
-        damageScrambleTimer.interval = Math.max(
-            16,
-            Math.min(55, Math.floor(560 / Math.max(1, digitCount(expectedDamageTargetText) * 2)))
-        )
+        const digits = Math.max(1, digitCount(expectedDamageTargetText))
+        // Use the render loop rather than a coarse Timer. Three random frames per digit
+        // stay below 0.6 s for normal damage values while matching the display refresh.
+        const totalDuration = Math.min(560, Math.max(260, digits * 56))
+        damageScrambleStepMs = totalDuration / (digits * damageScrambleRandomFrames)
+        damageScrambleElapsedMs = 0
+        damageScrambleStage = 0
         damageScrambleActiveDigit = 0
         damageScrambleRandomFrame = 0
         refreshScrambledDamageText()
-        damageScrambleTimer.start()
+        damageScrambleFrameAnimation.start()
     }
 
     function calculateDamage() {
@@ -659,32 +795,31 @@ ApplicationWindow {
         updateEffectiveAtk()
     }
 
-    Timer {
-        id: damageScrambleTimer
-        interval: 28
-        repeat: true
+    FrameAnimation {
+        id: damageScrambleFrameAnimation
+        running: false
         onTriggered: {
-            // Each active digit flashes through two wrong values, then locks.
-            if (damageScrambleRandomFrame < 1) {
-                damageScrambleRandomFrame++
-                refreshScrambledDamageText()
+            damageScrambleElapsedMs += frameTime * 1000
+            const nextStage = Math.floor(damageScrambleElapsedMs / damageScrambleStepMs)
+            if (nextStage === damageScrambleStage)
                 return
-            }
-            damageScrambleActiveDigit++
-            damageScrambleRandomFrame = 0
-            if (damageScrambleActiveDigit >= digitCount(expectedDamageTargetText)) {
+            damageScrambleStage = nextStage
+            if (damageScrambleStage >= digitCount(expectedDamageTargetText) * damageScrambleRandomFrames) {
                 displayedExpectedDamageText = expectedDamageTargetText
                 stop()
                 return
             }
-            // The next digit starts rolling in the same frame the previous one locks.
+            damageScrambleActiveDigit = Math.floor(damageScrambleStage / damageScrambleRandomFrames)
+            damageScrambleRandomFrame = damageScrambleStage % damageScrambleRandomFrames
             refreshScrambledDamageText()
         }
     }
 
     onResultVisibleChanged: {
         if (!resultVisible) {
-            damageScrambleTimer.stop()
+            damageScrambleFrameAnimation.stop()
+            damageScrambleStage = 0
+            damageScrambleElapsedMs = 0
             damageScrambleActiveDigit = 0
             damageScrambleRandomFrame = 0
             displayedExpectedDamageText = "0"
@@ -813,14 +948,25 @@ ApplicationWindow {
     Component.onCompleted: {
         initializeValues()
         reloadSlotList(true)
+        applySystemTheme(false)
     }
 
     header: ToolBar {
         height: 64
-        background: Rectangle { color: "#ffffff" }
+        background: Rectangle { color: themeColor("#252525", "#f3f6fa", "#141d36", "#eef4fb") }
 
         Item {
             anchors.fill: parent
+
+            // Frameless windows no longer have a native title bar. Drag the empty header area
+            // to move the fixed-size window while leaving the controls above it clickable.
+            DragHandler {
+                target: null
+                onActiveChanged: {
+                    if (active)
+                        window.startSystemMove()
+                }
+            }
 
             ColumnLayout {
                 id: headerTitleBlock
@@ -829,29 +975,27 @@ ApplicationWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
                 transform: Translate {
-                    // The handle physically reaches the title; the spring makes the title
-                    // react as if it is being pushed aside rather than moving in sync.
-                    x: Math.min(310, Math.max(0,
-                        sideMenuHandle.x + sideMenuHandle.width + 14 - headerTitleBlock.anchors.leftMargin))
+                    // Triggered by the menu action itself, so this starts before the drawer
+                    // reaches the title instead of lagging behind the sliding handle.
+                    x: sideMenuTitlePushed
+                        ? Math.min(310, sideMenuDrawer.width + sideMenuHandle.width + 13
+                            - headerTitleBlock.anchors.leftMargin)
+                        : 0
                     Behavior on x {
-                        SpringAnimation {
-                            spring: 3.1
-                            damping: 0.28
-                            epsilon: 0.25
-                        }
+                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                     }
                 }
 
                 Label {
-                    text: "原神星超导角色伤害计算器"
+                    text: "原神伤害计算器"
                     font.pixelSize: 19
                     font.weight: Font.DemiBold
-                    color: "#171716"
+                    color: (themeColor("#e8e8e9", "#1b1b1b", "#f3f7fd", "#18223e"))
                 }
                 Label {
-                    text: "SIGNAL CALCULATOR / QML"
+                    text: currentDamageModuleTitle
                     font.pixelSize: 11
-                    color: "#686863"
+                    color: (themeColor("#97979c", "#666666", "#8293ae", "#8795aa"))
                 }
             }
 
@@ -860,7 +1004,7 @@ ApplicationWindow {
                 width: 122
                 height: 36
                 anchors.verticalCenter: parent.verticalCenter
-                x: parent.width - 24 - width - (navigationButtonAtRight ? 0 : modeBadge.width + 14)
+                x: parent.width - windowControls.width - 16 - width - (navigationButtonAtRight ? 0 : modeBadge.width + 14)
                 onClicked: currentPage === 0 ? showAtkPage() : showDamagePage()
 
                 Behavior on x {
@@ -872,7 +1016,7 @@ ApplicationWindow {
                     anchors.fill: parent
                     text: currentPage === 0 ? "ATK 计算器" : "返回伤害计算"
                     transform: Translate { id: pageNavigationTranslate }
-                    color: "#181817"
+                    color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
                     font.pixelSize: 11
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -880,21 +1024,21 @@ ApplicationWindow {
                 background: Rectangle {
                     radius: 3
                     color: pageNavigationButton.down
-                        ? "#fafafa"
-                        : (pageNavigationButton.hovered ? "#f7f7f7" : "#ffffff")
+                        ? (themeColor("#252525", "#f2f2f2", "#344a72", "#eaf0f7"))
+                        : (pageNavigationButton.hovered ? (themeColor("#2b2b2b", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff")))
                     border.width: 1
-                    border.color: pageNavigationButton.hovered ? "#8a8a84" : "#bdbdb7"
-                    Behavior on color { ColorAnimation { duration: 110 } }
-                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                    border.color: pageNavigationButton.hovered ? (themeColor("#75757b", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#555555", "#e2e2e2", "#3a5077", "#d5e0ec"))
+                    Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                    Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                 }
             }
 
             Rectangle {
                 id: modeBadge
                 width: 138
-                height: 32
+                height: 36
                 anchors.right: parent.right
-                anchors.rightMargin: 24
+                anchors.rightMargin: windowControls.width + 16
                 anchors.verticalCenter: parent.verticalCenter
                 radius: 3
                 opacity: currentPage === 0 ? 1 : 0
@@ -903,11 +1047,11 @@ ApplicationWindow {
                     y: currentPage === 0 ? 0 : -18
                     Behavior on y { NumberAnimation { duration: 190; easing.type: Easing.InCubic } }
                 }
-                color: critDamageOnly ? "#f8f8f8" : "#fafafa"
+                color: modeBadgeMouse.containsMouse ? (themeColor("#333333", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                 border.width: 1
-                border.color: critDamageOnly ? "#1c1c1a" : "#b7b7b1"
+                border.color: modeBadgeMouse.containsMouse ? (themeColor("#75757b", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#555555", "#e2e2e2", "#3a5077", "#d5e0ec"))
 
-                Behavior on color { ColorAnimation { duration: 160 } }
+                Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 160 } }
                 Behavior on opacity { NumberAnimation { duration: 160 } }
 
                 Text {
@@ -915,16 +1059,20 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     text: critDamageOnly ? "暴击伤害模式" : "期望伤害模式"
                     transform: Translate { id: modeBadgeTranslate }
-                    color: "#292927"
-                    font.pixelSize: 12
+                    color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
+                    font.pixelSize: 11
                 }
 
                 MouseArea {
+                    id: modeBadgeMouse
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: toggleDamageModeAnimated()
                 }
             }
+
+
         }
     }
 
@@ -939,17 +1087,555 @@ ApplicationWindow {
         interactive: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
+        enter: Transition {
+            NumberAnimation {
+                property: "position"
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+        }
+        exit: Transition {
+            NumberAnimation {
+                property: "position"
+                duration: 220
+                easing.type: Easing.OutCubic
+            }
+        }
+
         onOpened: sideMenuOpen = true
+        onAboutToHide: sideMenuTitlePushed = false
         onClosed: sideMenuOpen = false
 
         background: Rectangle {
-            color: "#ffffff"
+            color: (themeColor("#252525", "#f3f6fa", "#141d36", "#eef4fb"))
             border.width: 1
-            border.color: "#d5d5d0"
+            border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
         }
 
         contentItem: Item {
-            // Navigation content will be added later.
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 76
+                color: themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")
+
+                Column {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 18
+                    anchors.rightMargin: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+
+                    Label {
+                        text: "原神伤害计算器"
+                        color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: "GENSHIN DAMAGE CALCULATOR"
+                        color: themeColor("#a8a8a8", "#666666", "#a7b6cf", "#62718c")
+                        font.pixelSize: 9
+                        font.letterSpacing: 1.1
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2")
+                }
+            }
+
+            Column {
+                anchors.top: parent.top
+                anchors.topMargin: 94
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                spacing: 10
+
+                Item {
+                    width: parent.width
+                    height: 48
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "跟随系统"
+                        color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        id: followSystemThemeSwitch
+                        width: 42
+                        height: 22
+                        radius: 11
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: followSystemTheme
+                            ? (darkMode ? "#e8e8e8" : "#303030")
+                            : themeColor("#4a4a4a", "#e2e2e2", "#3a5077", "#d7e3ef")
+
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+
+                        Rectangle {
+                            width: 16
+                            height: 16
+                            radius: 8
+                            y: 3
+                            x: followSystemTheme ? 23 : 3
+                            color: followSystemTheme ? (darkMode ? "#151515" : "#ffffff") : themeColor("#b7b7b7", "#ffffff", "#b1c0d7", "#ffffff")
+                            Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !themeTransitionRunning
+                        onClicked: setFollowSystemTheme(!followSystemTheme)
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: themeColor("#303030", "#deded9", "#304466", "#dee8f2")
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: 48
+                    opacity: followSystemTheme ? 0.52 : 1
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "深色模式"
+                        color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        id: themeSwitch
+                        width: 42
+                        height: 22
+                        radius: 11
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: themeColor("#f1f1f1", "#e2e2e2", "#55d7fa", "#d7e3ef")
+
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+
+                        Rectangle {
+                            width: 16
+                            height: 16
+                            radius: 8
+                            y: 3
+                            x: darkMode ? 23 : 3
+                            color: themeColor("#151515", "#ffffff", "#0f1529", "#ffffff")
+                            Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !followSystemTheme && !themeTransitionRunning
+                        onClicked: toggleThemeAnimated()
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: themeColor("#303030", "#deded9", "#304466", "#dee8f2")
+                    }
+                }
+
+                Item {
+                    width: parent.width
+                    height: 48
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "芙宁娜主题"
+                        color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                        font.pixelSize: 12
+                    }
+
+                    Rectangle {
+                        id: furinaThemeSwitch
+                        width: 42
+                        height: 22
+                        radius: 11
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: furinaTheme
+                            ? (darkMode ? "#55d7fa" : "#30488f")
+                            : themeColor("#4a4a4a", "#e2e2e2", "#3a5077", "#d7e3ef")
+
+                        Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+
+                        Rectangle {
+                            width: 16
+                            height: 16
+                            radius: 8
+                            y: 3
+                            x: furinaTheme ? 23 : 3
+                            color: furinaTheme ? "#ffffff" : themeColor("#b7b7b7", "#ffffff", "#b1c0d7", "#ffffff")
+                            Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !themeTransitionRunning
+                        onClicked: toggleFurinaThemeAnimated()
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: themeColor("#303030", "#deded9", "#304466", "#dee8f2")
+                    }
+                }
+
+                Repeater {
+                    model: 2
+                    delegate: Item {
+                        width: parent.width
+                        height: 44
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: themeColor("#303030", "#deded9", "#304466", "#dee8f2")
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: developerCredit.top
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                height: 1
+                color: themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2")
+            }
+
+            Label {
+                id: developerCredit
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 16
+                text: "Developed by  Myx144"
+                color: themeColor("#909090", "#777777", "#8293ae", "#8795aa")
+                font.pixelSize: 9
+                font.letterSpacing: 0.5
+                horizontalAlignment: Text.AlignLeft
+            }
+        }
+    }
+
+    MouseArea {
+        id: calculationModeDismissArea
+        parent: Overlay.overlay
+        anchors.fill: parent
+        z: sideMenuDrawer.z + 7
+        visible: calculationModeMenuOpen
+        enabled: visible
+        onClicked: closeCalculationModeMenu()
+    }
+
+    Item {
+        id: calculationModeDropPanel
+        parent: Overlay.overlay
+        property bool animationReady: false
+        property real panelHeight: calculationModeColumn.implicitHeight
+        x: Math.round((parent.width - width) / 2)
+        y: calculationModeMenuOpen ? 0 : -panelHeight
+        width: 236
+        height: panelHeight + calculationModeButton.height
+        z: sideMenuDrawer.z + 8
+        visible: !ugcResultDialog.visible && !ugcErrorDialog.visible && !ugcLoadingOverlay.visible
+
+        Component.onCompleted: animationReady = true
+        onVisibleChanged: {
+            if (!visible)
+                closeCalculationModeMenu()
+        }
+
+        Behavior on y {
+            enabled: calculationModeDropPanel.animationReady
+            NumberAnimation {
+                duration: calculationModeMenuOpen ? 250 : 210
+                easing.type: Easing.OutCubic
+            }
+        }
+
+        Rectangle {
+            id: calculationModeMenuSurface
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: calculationModeDropPanel.panelHeight
+            radius: 4
+            color: themeColor("#252525", "#ffffff", "#192543", "#ffffff")
+            border.width: 1
+            border.color: themeColor("#4a4a4a", "#d8d8d8", "#3a5077", "#d5e0ec")
+
+            Column {
+                id: calculationModeColumn
+                anchors.fill: parent
+
+                Rectangle {
+                    width: parent.width
+                    height: 38
+                    color: themeColor("#2b2b2b", "#f7f7f7", "#1e2c4d", "#eef4fb")
+
+                    Label {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "切换计算模式"
+                        color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                Repeater {
+                    model: damageModules
+                    delegate: Rectangle {
+                        id: damageModuleItem
+                        required property var modelData
+                        property bool selected: modelData.id === currentDamageModule
+                        width: calculationModeColumn.width
+                        height: 52
+                        color: selected
+                            ? themeColor("#343434", "#f1f1f1", "#223b69", "#e1f7fe")
+                            : (damageModuleMouse.containsMouse
+                                ? themeColor("#303030", "#f7f7f7", "#2a3d63", "#f4f7fb")
+                                : "transparent")
+                        opacity: modelData.enabled ? 1 : 0.48
+
+                        Column {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+                            Label {
+                                text: modelData.title
+                                color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                                font.pixelSize: 12
+                                font.weight: damageModuleItem.selected ? Font.DemiBold : Font.Normal
+                            }
+                            Label {
+                                text: modelData.subtitle
+                                color: themeColor("#909095", "#666666", "#8293ae", "#8795aa")
+                                font.pixelSize: 8
+                                font.letterSpacing: 0.7
+                            }
+                        }
+
+                        Label {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: damageModuleItem.selected ? "当前" : ""
+                            color: themeColor("#b7b7bb", "#505050", "#55d7fa", "#30488f")
+                            font.pixelSize: 9
+                        }
+
+                        MouseArea {
+                            id: damageModuleMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: modelData.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            enabled: modelData.enabled
+                            onClicked: selectDamageModule(modelData.id)
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 34
+                    color: "transparent"
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: 1
+                        color: themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2")
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        text: "后续伤害模块将在此处显示"
+                        color: themeColor("#88888c", "#777777", "#8293ae", "#8795aa")
+                        font.pixelSize: 9
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: calculationModeButton
+            x: Math.round((parent.width - width) / 2)
+            y: calculationModeDropPanel.panelHeight - 1
+            width: 112
+            height: 22
+
+            property color fillColor: calculationModeMouse.pressed
+                ? themeColor("#343434", "#ededed", "#344a72", "#eaf0f7")
+                : (calculationModeMouse.containsMouse
+                    ? themeColor("#303030", "#f5f5f5", "#2a3d63", "#f4f7fb")
+                    : themeColor("#292929", "#ffffff", "#192543", "#ffffff"))
+            property color outlineColor: calculationModeMouse.containsMouse
+                ? themeColor("#737373", "#a8a8a8", "#5874a3", "#9db3ce")
+                : themeColor("#4a4a4a", "#d8d8d8", "#3a5077", "#d5e0ec")
+            property color iconColor: themeColor("#eeeeee", "#252525", "#55d7fa", "#30488f")
+
+            onFillColorChanged: calculationModeCanvas.requestPaint()
+            onOutlineColorChanged: calculationModeCanvas.requestPaint()
+            onIconColorChanged: calculationModeCanvas.requestPaint()
+
+            Canvas {
+                id: calculationModeCanvas
+                anchors.fill: parent
+                antialiasing: true
+                onPaint: {
+                    const context = getContext("2d")
+                    context.reset()
+                    context.beginPath()
+                    context.moveTo(0.5, 0.5)
+                    context.lineTo(width - 0.5, 0.5)
+                    context.lineTo(width - 15.5, height - 0.5)
+                    context.lineTo(15.5, height - 0.5)
+                    context.closePath()
+                    context.fillStyle = calculationModeButton.fillColor
+                    context.fill()
+                    context.strokeStyle = calculationModeButton.outlineColor
+                    context.lineWidth = 1
+                    context.stroke()
+
+                    const centerX = width / 2
+                    const centerY = height / 2 + 1
+                    context.beginPath()
+                    context.moveTo(centerX - 4.5, centerY - 2.5)
+                    context.lineTo(centerX + 4.5, centerY - 2.5)
+                    context.lineTo(centerX, centerY + 3.5)
+                    context.closePath()
+                    context.fillStyle = calculationModeButton.iconColor
+                    context.fill()
+                }
+            }
+
+            MouseArea {
+                id: calculationModeMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (sideMenuDrawer.opened)
+                        sideMenuDrawer.close()
+                    calculationModeMenuOpen = !calculationModeMenuOpen
+                }
+            }
+        }
+    }
+
+    Row {
+        id: windowControls
+        parent: Overlay.overlay
+        anchors.top: parent.top
+        anchors.right: parent.right
+        height: 64
+        width: 96
+        spacing: 0
+        z: sideMenuDrawer.z + 12
+        visible: !ugcResultDialog.visible && !ugcErrorDialog.visible && !ugcLoadingOverlay.visible
+
+        Rectangle {
+            id: minimizeWindowButton
+            width: 48
+            height: parent.height
+            color: minimizeWindowMouse.containsMouse
+                ? themeColor("#383838", "#e7e7e7", "#223253", "#e8f3fb")
+                : "transparent"
+
+            Text {
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -2
+                text: "−"
+                color: themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e")
+                font.pixelSize: 20
+                font.weight: Font.Medium
+            }
+
+            MouseArea {
+                id: minimizeWindowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: window.showMinimized()
+            }
+        }
+
+        Rectangle {
+            id: closeWindowButton
+            width: 48
+            height: parent.height
+            color: closeWindowMouse.pressed
+                ? "#a8261a"
+                : (closeWindowMouse.containsMouse ? "#c42b1c" : "transparent")
+
+            Text {
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -1
+                text: "×"
+                color: closeWindowMouse.containsMouse
+                    ? "#ffffff"
+                    : themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e")
+                font.pixelSize: 22
+                font.weight: Font.Light
+            }
+
+            MouseArea {
+                id: closeWindowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: window.close()
+            }
         }
     }
 
@@ -961,10 +1647,11 @@ ApplicationWindow {
         y: 0
         width: 58
         height: 64
-        z: sideMenuDrawer.z + 1
-        color: "#ffffff"
+        z: sideMenuDrawer.z + 10
+        visible: !ugcResultDialog.visible && !ugcErrorDialog.visible && !ugcLoadingOverlay.visible
+        color: (themeColor("#252525", "#f3f6fa", "#141d36", "#eef4fb"))
         border.width: 1
-        border.color: "#d5d5d0"
+        border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
         Column {
             anchors.centerIn: parent
@@ -976,7 +1663,7 @@ ApplicationWindow {
                     width: 15
                     height: 1
                     radius: 1
-                    color: "#151515"
+                    color: (themeColor("#eaeaea", "#151515", "#f3f7fd", "#18223e"))
                 }
             }
         }
@@ -996,10 +1683,14 @@ ApplicationWindow {
         source: sideMenuHandle
         horizontalOffset: 3
         verticalOffset: 3
-        radius: 8
-        samples: 17
-        color: "#30000000"
+        radius: 6
+        samples: 9
+        color: (darkMode ? "#28000000" : "#28000000")
+        cached: true
         transparentBorder: true
+        // The tab is flat while the sidebar is closed; its shadow fades in only with the drawer.
+        visible: sideMenuHandle.visible && sideMenuDrawer.position > 0.001
+        opacity: sideMenuDrawer.position
         z: sideMenuHandle.z - 1
     }
 
@@ -1014,7 +1705,7 @@ ApplicationWindow {
         visible: sideMenuDrawer.visible
         gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: "#26000000" }
+            GradientStop { position: 0.0; color: (darkMode ? "#26000000" : "#26000000") }
             GradientStop { position: 1.0; color: "#00000000" }
         }
     }
@@ -1026,7 +1717,7 @@ ApplicationWindow {
         enabled: currentPage === 0
         visible: opacity > 0
         opacity: currentPage === 0 ? 1 : 0
-        color: "#ffffff"
+        color: (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff"))
 
         Repeater {
             model: 12
@@ -1034,7 +1725,7 @@ ApplicationWindow {
                 width: 1
                 height: parent.height
                 x: index * parent.width / 12
-                color: "#292927"
+                color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                 opacity: 0.018
             }
         }
@@ -1054,9 +1745,9 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52
                 radius: 3
-                color: "#ffffff"
+                color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                 border.width: 1
-                border.color: "#d5d5d0"
+                border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                 RowLayout {
                     anchors.fill: parent
@@ -1066,7 +1757,7 @@ ApplicationWindow {
 
                     Label {
                         text: "CONFIG"
-                        color: "#484844"
+                        color: (themeColor("#b7b7bb", "#505050", "#b1c0d7", "#5f6f89"))
                         font.pixelSize: 12
                     }
 
@@ -1075,18 +1766,17 @@ ApplicationWindow {
                         delegate: AppButton {
                             id: slotButton
                             required property var modelData
-                            checkable: true
-                            checked: modelData.id === currentSlot
+                            property bool current: modelData.id === currentSlot
                             Layout.preferredHeight: 36
-                            Layout.preferredWidth: Math.max(96, Math.min(156, slotText.implicitWidth + 34))
+                            Layout.preferredWidth: 54
                             onClicked: switchSlot(modelData.id)
 
                             contentItem: Text {
                                 id: slotText
                                 anchors.fill: parent
                                 anchors.margins: 4
-                                text: modelData.name || ("配置 " + modelData.id)
-                                color: slotButton.checked ? "#ffffff" : "#383835"
+                                text: compactSlotLabel(modelData)
+                                color: slotButton.current ? (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff")) : (themeColor("#c7c7ca", "#383835", "#b1c0d7", "#5f6f89"))
                                 font.pixelSize: 12
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -1094,17 +1784,17 @@ ApplicationWindow {
                             }
                             background: Rectangle {
                                 radius: 3
-                                color: slotButton.checked
-                                    ? (slotButton.hovered ? "#282827" : "#202020")
+                                color: slotButton.current
+                                    ? (slotButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f")))
                                     : (slotButton.down
-                                        ? "#fafafa"
-                                        : (slotButton.hovered ? "#f7f7f7" : "#ffffff"))
+                                        ? (themeColor("#383838", "#f2f2f2", "#344a72", "#eaf0f7"))
+                                        : (slotButton.hovered ? (themeColor("#333333", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))))
                                 border.width: 1
-                                border.color: slotButton.checked
-                                    ? (slotButton.hovered ? "#151515" : "#20201e")
-                                    : (slotButton.hovered ? "#8a8a84" : "#c7c7c1")
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                                Behavior on border.color { ColorAnimation { duration: 120 } }
+                                border.color: slotButton.current
+                                    ? (slotButton.hovered ? (themeColor("#787878", "#444444", "#6a89ba", "#3d5caa")) : (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77")))
+                                    : (slotButton.hovered ? (themeColor("#5a5a5a", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb")))
+                                Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
+                                Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
                             }
                         }
                     }
@@ -1112,17 +1802,18 @@ ApplicationWindow {
                     Rectangle {
                         Layout.preferredWidth: 1
                         Layout.preferredHeight: 28
-                        color: "#c7c7c1"
+                        color: (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
                     }
 
                     Label {
                         text: "NAME"
-                        color: "#686863"
+                        color: (themeColor("#97979c", "#666666", "#8293ae", "#8795aa"))
                         font.pixelSize: 11
                     }
 
                     TextField {
                         id: slotNameInput
+                        objectName: "slotNameInput"
                         Layout.preferredWidth: 145
                         Layout.preferredHeight: 33
                         text: slotName
@@ -1130,7 +1821,13 @@ ApplicationWindow {
                         placeholderText: ""
                         leftPadding: 10
                         rightPadding: 10
-                        color: "#1e1e1c"
+                        color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
+                        onTextChanged: {
+                            if (!activeFocus) {
+                                cursorPosition = 0
+                                deselect()
+                            }
+                        }
                         onTextEdited: slotName = text
                         onEditingFinished: {
                             if (autoSaveEnabled)
@@ -1138,11 +1835,11 @@ ApplicationWindow {
                         }
                         background: Rectangle {
                             radius: 3
-                            color: slotNameInput.activeFocus ? "#ffffff" : "#ffffff"
+                            color: slotNameInput.activeFocus ? (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                             border.width: 1
-                            border.color: slotNameInput.activeFocus ? "#282826" : "#c7c7c1"
-                            Behavior on color { ColorAnimation { duration: 120 } }
-                            Behavior on border.color { ColorAnimation { duration: 120 } }
+                            border.color: slotNameInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
+                            Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
                         }
                     }
 
@@ -1155,7 +1852,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             anchors.margins: 4
                             text: "保存"
-                            color: "#ffffff"
+                            color: (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff"))
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -1163,12 +1860,12 @@ ApplicationWindow {
                         background: Rectangle {
                             radius: 3
                             color: slotSaveButton.down
-                                ? "#363634"
-                                : (slotSaveButton.hovered ? "#20201e" : "#1a1a1a")
+                                ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                                : (slotSaveButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f")))
                             border.width: 1
-                            border.color: slotSaveButton.hovered ? "#171717" : "#242422"
-                            Behavior on color { ColorAnimation { duration: 110 } }
-                            Behavior on border.color { ColorAnimation { duration: 110 } }
+                            border.color: slotSaveButton.hovered ? (themeColor("#787878", "#444444", "#6a89ba", "#3d5caa")) : (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77"))
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                            Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                         }
                     }
 
@@ -1187,12 +1884,14 @@ ApplicationWindow {
                         id: statusMessageLabel
                         visible: window.width >= 1080
                         text: statusMessage
-                        color: "#6f6f6a"
+                        color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                         font.pixelSize: 11
-                        Layout.preferredWidth: visible ? 132 : 0
-                        Layout.maximumWidth: 132
+                        Layout.preferredWidth: visible ? 118 : 0
+                        Layout.maximumWidth: 118
                         Layout.minimumWidth: 0
+                        horizontalAlignment: Text.AlignRight
                         elide: Text.ElideRight
+                        clip: true
                     }
                 }
             }
@@ -1209,9 +1908,9 @@ ApplicationWindow {
                     Layout.preferredWidth: 510
                     Layout.fillHeight: true
                     radius: 3
-                    color: "#ffffff"
+                    color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                     border.width: 1
-                    border.color: "#d5d5d0"
+                    border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1224,7 +1923,7 @@ ApplicationWindow {
                                 text: "输入数据"
                                 font.pixelSize: 16
                                 font.weight: Font.DemiBold
-                                color: "#20201e"
+                                color: (themeColor("#dfdfe1", "#20201e", "#f3f7fd", "#18223e"))
                             }
                             Item { Layout.fillWidth: true }
                             AppButton {
@@ -1236,7 +1935,7 @@ ApplicationWindow {
                                 contentItem: Text {
                                     anchors.fill: parent
                                     text: "截图识别"
-                                    color: "#292927"
+                                    color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
@@ -1244,12 +1943,12 @@ ApplicationWindow {
                                 background: Rectangle {
                                     radius: 3
                                     color: ugcImportButton.down
-                                        ? "#fafafa"
-                                        : (ugcImportButton.hovered ? "#f4f4f4" : "#f7f7f7")
+                                        ? (themeColor("#252525", "#f2f2f2", "#344a72", "#eaf0f7"))
+                                        : (ugcImportButton.hovered ? (themeColor("#383838", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
                                     border.width: 1
-                                    border.color: ugcImportButton.hovered ? "#8f8f89" : "#a4a49e"
-                                    Behavior on color { ColorAnimation { duration: 110 } }
-                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                    border.color: ugcImportButton.hovered ? (themeColor("#707076", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#5b5b61", "#c0c0c0", "#3a5077", "#cfdceb"))
+                                    Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                                 }
                             }
                             AppButton {
@@ -1261,7 +1960,7 @@ ApplicationWindow {
                                 onClicked: cancelUgcImportedValues()
                                 contentItem: Text {
                                     text: cancelUgcImportButton.text
-                                    color: "#ffffff"
+                                    color: (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff"))
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
@@ -1269,10 +1968,10 @@ ApplicationWindow {
                                 background: Rectangle {
                                     radius: 3
                                     color: cancelUgcImportButton.down
-                                        ? "#363636"
-                                        : (cancelUgcImportButton.hovered ? "#2a2a2a" : "#171717")
+                                        ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                                        : (cancelUgcImportButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f")))
                                     border.width: 1
-                                    border.color: "#171717"
+                                    border.color: (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77"))
                                 }
                             }
                             AppButton {
@@ -1287,7 +1986,7 @@ ApplicationWindow {
                                     anchors.margins: 4
                                     text: mainPctMode === true ? "百分数输入" : "小数输入"
                                     transform: Translate { id: inputModeButtonTranslate }
-                                    color: "#222220"
+                                    color: (themeColor("#dddddf", "#222220", "#dbe5f3", "#24304a"))
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
@@ -1295,12 +1994,12 @@ ApplicationWindow {
                                 background: Rectangle {
                                     radius: 3
                                     color: mainInputModeButton.down
-                                        ? "#fafafa"
-                                        : (mainInputModeButton.hovered ? "#f4f4f4" : "#f7f7f7")
+                                        ? (themeColor("#252525", "#f2f2f2", "#344a72", "#eaf0f7"))
+                                        : (mainInputModeButton.hovered ? (themeColor("#383838", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
                                     border.width: 1
-                                    border.color: mainInputModeButton.hovered ? "#8f8f89" : "#a4a49e"
-                                    Behavior on color { ColorAnimation { duration: 110 } }
-                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                    border.color: mainInputModeButton.hovered ? (themeColor("#707076", "#adadad", "#5874a3", "#9db3ce")) : (themeColor("#5b5b61", "#c0c0c0", "#3a5077", "#cfdceb"))
+                                    Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                                 }
                             }
                         }
@@ -1310,7 +2009,7 @@ ApplicationWindow {
                             text: mainPctMode ? "百分比使用 70 这样的数字输入" : "百分比使用 0.7 这样的数字输入"
                             transform: Translate { id: inputModeHintTranslate }
                             font.pixelSize: 11
-                            color: "#6f6f6a"
+                            color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                         }
 
                         ColumnLayout {
@@ -1328,7 +2027,7 @@ ApplicationWindow {
 
                                     Label {
                                         text: modelData.title
-                                        color: "#575752"
+                                        color: (themeColor("#a8a8ad", "#575752", "#a7b6cf", "#62718c"))
                                         font.pixelSize: 11
                                         font.weight: Font.DemiBold
                                         leftPadding: 2
@@ -1353,14 +2052,14 @@ ApplicationWindow {
                                                 Layout.fillWidth: true
                                                 Layout.preferredHeight: 50
                                                 radius: 3
-                                                color: ugcLocked ? "#f5f5f5" : "#ffffff"
+                                                color: ugcLocked ? (themeColor("#303030", "#f2f2f2", "#1e2c4d", "#edf3f9")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                                 border.width: 1
                                                 border.color: ugcLocked
-                                                    ? "#ddddda"
-                                                    : (input.activeFocus ? "#282826" : "#d5d5d0")
+                                                    ? (themeColor("#3a3a3a", "#ddddda", "#304466", "#d7e3ef"))
+                                                    : (input.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2")))
 
-                                                Behavior on color { ColorAnimation { duration: 120 } }
-                                                Behavior on border.color { ColorAnimation { duration: 120 } }
+                                                Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
+                                                Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 120 } }
 
                                                 Label {
                                                     anchors.left: parent.left
@@ -1369,7 +2068,7 @@ ApplicationWindow {
                                                     anchors.topMargin: 5
                                                     text: fieldData.label
                                                     font.pixelSize: 11
-                                                    color: "#2c2c29"
+                                                    color: (themeColor("#d3d3d6", "#2c2c29", "#b1c0d7", "#5f6f89"))
                                                     width: parent.width - 76
                                                     elide: Text.ElideRight
                                                 }
@@ -1381,7 +2080,7 @@ ApplicationWindow {
                                                     anchors.topMargin: 7
                                                     text: fieldData.required
                                                     font.pixelSize: 9
-                                                    color: "#74746f"
+                                                    color: (themeColor("#8b8b90", "#727272", "#8293ae", "#8795aa"))
                                                 }
 
                                                 TextInput {
@@ -1401,9 +2100,9 @@ ApplicationWindow {
                                                     opacity: enabled ? 1 : 0.52
                                                     selectByMouse: enabled
                                                     clip: true
-                                                    color: "#181817"
-                                                    selectionColor: "#202020"
-                                                    selectedTextColor: "#ffffff"
+                                                    color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
+                                                    selectionColor: (themeColor("#dfdfdf", "#202020", "#55d7fa", "#30488f"))
+                                                    selectedTextColor: (themeColor("#202020", "#ffffff", "#0f1529", "#f8fbff"))
                                                     font.pixelSize: 13
                                                     verticalAlignment: TextInput.AlignVCenter
                                                     onTextEdited: {
@@ -1438,9 +2137,9 @@ ApplicationWindow {
                             Layout.preferredHeight: 160
                             Layout.minimumHeight: 160
                             radius: 3
-                            color: "#ffffff"
+                            color: (themeColor("#2b2b2b", "#fcfcfc", "#1e2c4d", "#f5f9fd"))
                             border.width: 1
-                            border.color: "#d8d8d4"
+                            border.color: (themeColor("#3f3f3f", "#e1e1e1", "#304466", "#dee8f2"))
 
                             ColumnLayout {
                                 anchors.fill: parent
@@ -1452,22 +2151,22 @@ ApplicationWindow {
                                     Layout.preferredHeight: 20
                                     Label {
                                         text: "ATK 加成"
-                                        color: "#50504c"
+                                        color: (themeColor("#afafb3", "#50504c", "#b1c0d7", "#5f6f89"))
                                         font.pixelSize: 11
                                         font.weight: Font.DemiBold
                                     }
                                     Label {
                                         text: "武器"
-                                        color: "#63635e"
+                                        color: (themeColor("#9c9ca1", "#666666", "#8293ae", "#8795aa"))
                                         font.pixelSize: 9
                                     }
                                     Rectangle {
                                         Layout.preferredWidth: 48
                                         Layout.preferredHeight: 24
                                         radius: 3
-                                        color: "#ffffff"
+                                        color: (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                         border.width: 1
-                                        border.color: permanentWeaponInput.activeFocus ? "#282826" : "#c8c8c2"
+                                        border.color: permanentWeaponInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
                                         TextInput {
                                             id: permanentWeaponInput
                                             anchors.fill: parent
@@ -1476,7 +2175,7 @@ ApplicationWindow {
                                             text: condBonuses["weapon_passive_permanent"] !== undefined
                                                 ? String(condBonuses["weapon_passive_permanent"].value)
                                                 : "0"
-                                            color: "#1e1e1c"
+                                            color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                                             selectByMouse: true
                                             clip: true
                                             font.pixelSize: 10
@@ -1499,16 +2198,16 @@ ApplicationWindow {
                                     }
                                     Label {
                                         text: "套装"
-                                        color: "#63635e"
+                                        color: (themeColor("#9c9ca1", "#666666", "#8293ae", "#8795aa"))
                                         font.pixelSize: 9
                                     }
                                     Rectangle {
                                         Layout.preferredWidth: 48
                                         Layout.preferredHeight: 24
                                         radius: 3
-                                        color: "#ffffff"
+                                        color: (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                         border.width: 1
-                                        border.color: permanentSetBonusInput.activeFocus ? "#282826" : "#c8c8c2"
+                                        border.color: permanentSetBonusInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
                                         TextInput {
                                             id: permanentSetBonusInput
                                             anchors.fill: parent
@@ -1517,7 +2216,7 @@ ApplicationWindow {
                                             text: condBonuses["set_bonus_permanent"] !== undefined
                                                 ? String(condBonuses["set_bonus_permanent"].value)
                                                 : "0"
-                                            color: "#1e1e1c"
+                                            color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                                             selectByMouse: true
                                             clip: true
                                             font.pixelSize: 10
@@ -1543,7 +2242,7 @@ ApplicationWindow {
                                         text: effectiveAtkValid
                                             ? "有效 ATK: " + formatNumber(effectiveAtkValue, 5)
                                             : "有效 ATK: —"
-                                        color: effectiveAtkValid ? "#e28a7e" : "#e7a79a"
+                                        color: effectiveAtkValid ? (themeColor("#ff8f86", "#e28a7e", "#ff9a91", "#e77e78")) : (themeColor("#ffaaa0", "#e7a79a", "#ff9a91", "#e77e78"))
                                         font.pixelSize: 12
                                         font.weight: Font.DemiBold
                                     }
@@ -1578,9 +2277,9 @@ ApplicationWindow {
                                                 Layout.preferredWidth: 68
                                                 Layout.preferredHeight: 27
                                                 radius: 3
-                                                color: "#ffffff"
+                                                color: (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                                 border.width: 1
-                                                border.color: conditionInput.activeFocus ? "#282826" : "#c8c8c2"
+                                                border.color: conditionInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
                                                 opacity: conditionToggle.checked ? 1 : 0.72
 
                                                 TextInput {
@@ -1592,7 +2291,7 @@ ApplicationWindow {
                                                     text: condBonuses[modelData.key] !== undefined
                                                         ? String(condBonuses[modelData.key].value)
                                                         : "0"
-                                                    color: "#1e1e1c"
+                                                    color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                                                     selectByMouse: true
                                                     clip: true
                                                     font.pixelSize: 11
@@ -1625,18 +2324,18 @@ ApplicationWindow {
 
                                     Label {
                                         text: "白值"
-                                        color: "#2c2c29"
+                                        color: (themeColor("#d3d3d6", "#2c2c29", "#b1c0d7", "#5f6f89"))
                                         font.pixelSize: 10
                                     }
                                     Rectangle {
                                         Layout.preferredWidth: 86
                                         Layout.preferredHeight: 27
                                         radius: 3
-                                        color: ugcImportedFieldsLocked ? "#f5f5f5" : "#ffffff"
+                                        color: ugcImportedFieldsLocked ? (themeColor("#303030", "#f2f2f2", "#1e2c4d", "#edf3f9")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff"))
                                         border.width: 1
                                         border.color: ugcImportedFieldsLocked
-                                            ? "#ddddda"
-                                            : (baseAtkInput.activeFocus ? "#282826" : "#c8c8c2")
+                                            ? (themeColor("#3a3a3a", "#ddddda", "#304466", "#d7e3ef"))
+                                            : (baseAtkInput.activeFocus ? (themeColor("#707070", "#7a7a7a", "#62bfe8", "#5478b5")) : (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb")))
 
                                         TextInput {
                                             id: baseAtkInput
@@ -1649,7 +2348,7 @@ ApplicationWindow {
                                                 : ""
                                             enabled: !ugcImportedFieldsLocked
                                             opacity: ugcImportedFieldsLocked ? 0.52 : 1
-                                            color: "#1e1e1c"
+                                            color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                                             selectByMouse: !ugcImportedFieldsLocked
                                             clip: true
                                             font.pixelSize: 11
@@ -1673,7 +2372,7 @@ ApplicationWindow {
                                     }
                                     Label {
                                         text: "角色基础 + 武器基础"
-                                        color: "#797973"
+                                        color: (themeColor("#86868c", "#797973", "#8293ae", "#8795aa"))
                                         font.pixelSize: 9
                                     }
                                     Item { Layout.fillWidth: true }
@@ -1683,7 +2382,7 @@ ApplicationWindow {
                                             + (conditionalFlatValue !== 0
                                                 ? "  +" + formatNumber(conditionalFlatValue, 5)
                                                 : "")
-                                        color: "#63635e"
+                                        color: (themeColor("#9c9ca1", "#666666", "#8293ae", "#8795aa"))
                                         font.pixelSize: 9
                                     }
                                 }
@@ -1698,9 +2397,9 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     radius: 3
-                    color: "#ffffff"
+                    color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                     border.width: 1
-                    border.color: "#d5d5d0"
+                    border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -1717,12 +2416,12 @@ ApplicationWindow {
                                     text: critDamageOnly ? "暴击伤害" : "期望伤害"
                                     transform: Translate { id: modeResultTranslate }
                                     font.pixelSize: 15
-                                    color: "#1d1d1b"
+                                    color: (themeColor("#e2e2e4", "#1d1d1b", "#f3f7fd", "#18223e"))
                                 }
                                 Label {
                                     text: "SIGNAL OUTPUT"
                                     font.pixelSize: 11
-                                    color: "#6f6f6a"
+                                    color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                                 }
                             }
                             Item { Layout.fillWidth: true }
@@ -1735,7 +2434,7 @@ ApplicationWindow {
                                     anchors.fill: parent
                                     anchors.margins: 4
                                     text: "计算"
-                                    color: "#ffffff"
+                                    color: (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff"))
                                     font.pixelSize: 14
                                     font.weight: Font.DemiBold
                                     horizontalAlignment: Text.AlignHCenter
@@ -1744,12 +2443,12 @@ ApplicationWindow {
                                 background: Rectangle {
                                     radius: 3
                                     color: calculateDamageButton.down
-                                        ? "#363634"
-                                        : (calculateDamageButton.hovered ? "#20201e" : "#1a1a1a")
+                                        ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                                        : (calculateDamageButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f")))
                                     border.width: 1
-                                    border.color: calculateDamageButton.hovered ? "#171717" : "#242422"
-                                    Behavior on color { ColorAnimation { duration: 110 } }
-                                    Behavior on border.color { ColorAnimation { duration: 110 } }
+                                    border.color: calculateDamageButton.hovered ? (themeColor("#787878", "#444444", "#6a89ba", "#3d5caa")) : (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77"))
+                                    Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                                    Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
                                 }
                             }
                         }
@@ -1758,15 +2457,15 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.preferredHeight: resultVisible ? 156 : 86
                             radius: 3
-                            color: resultVisible ? "#ffffff" : "#ffffff"
+                            color: resultVisible ? (themeColor("#252525", "#ffffff", "#192543", "#ffffff")) : (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                             border.width: 1
-                            border.color: resultVisible ? "#303030" : "#d5d5d0"
+                            border.color: resultVisible ? (themeColor("#686868", "#303030", "#62bfe8", "#30488f")) : (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                             Behavior on Layout.preferredHeight {
                                 NumberAnimation { duration: 230; easing.type: Easing.OutCubic }
                             }
-                            Behavior on color { ColorAnimation { duration: 180 } }
-                            Behavior on border.color { ColorAnimation { duration: 180 } }
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
+                            Behavior on border.color { enabled: !themeTransitionRunning; ColorAnimation { duration: 180 } }
 
                             Column {
                                 anchors.fill: parent
@@ -1775,12 +2474,12 @@ ApplicationWindow {
 
                                 Label {
                                     text: lastError !== "" ? "输入错误" : "最终伤害"
-                                    color: lastError !== "" ? "#e7a79a" : "#222220"
+                                    color: lastError !== "" ? (themeColor("#ffaaa0", "#e7a79a", "#ff9a91", "#e77e78")) : (themeColor("#dddddf", "#222220", "#dbe5f3", "#24304a"))
                                     font.pixelSize: 12
                                 }
                                 Label {
                                     text: lastError !== "" ? lastError : (resultVisible ? displayedExpectedDamageText : "等待计算")
-                                    color: "#20201e"
+                                    color: (themeColor("#dfdfe1", "#20201e", "#f3f7fd", "#18223e"))
                                     font.pixelSize: resultVisible ? 31 : 20
                                     font.weight: Font.DemiBold
                                     font.family: "Consolas"
@@ -1789,7 +2488,7 @@ ApplicationWindow {
                                     visible: resultVisible && lastError === ""
                                     opacity: visible ? 1 : 0
                                     text: "基础区 × 双爆区 × 抗性区 × 擢升区"
-                                    color: "#656560"
+                                    color: (themeColor("#9a9a9f", "#666666", "#8293ae", "#8795aa"))
                                     font.pixelSize: 11
                                     Behavior on opacity { NumberAnimation { duration: 180 } }
                                 }
@@ -1800,9 +2499,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             radius: 3
-                            color: "#ffffff"
+                            color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
                             border.width: 1
-                            border.color: "#d5d5d0"
+                            border.color: (themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2"))
 
                             ScrollView {
                                 anchors.fill: parent
@@ -1815,7 +2514,7 @@ ApplicationWindow {
 
                                     Label {
                                         text: "FORMULA CHANNELS"
-                                        color: "#43433f"
+                                        color: (themeColor("#bcbcc0", "#43433f", "#b1c0d7", "#5f6f89"))
                                         font.pixelSize: 12
                                     }
 
@@ -1836,7 +2535,7 @@ ApplicationWindow {
                                             width: parent.width
                                             Label {
                                                 text: modelData[0]
-                                                color: "#60605b"
+                                                color: (themeColor("#9f9fa4", "#60605b", "#8293ae", "#62718c"))
                                                 font.pixelSize: 12
                                             }
                                             Item { Layout.fillWidth: true }
@@ -1844,7 +2543,7 @@ ApplicationWindow {
                                                 text: resultVisible && coefficients[modelData[1]] !== undefined
                                                     ? formatNumber(coefficients[modelData[1]], 5)
                                                     : "—"
-                                                color: "#181817"
+                                                color: (themeColor("#e7e7e8", "#1b1b1b", "#f3f7fd", "#18223e"))
                                                 font.pixelSize: 12
                                                 font.family: "Consolas"
                                             }
@@ -1859,8 +2558,78 @@ ApplicationWindow {
         }
     }
 
+    SequentialAnimation {
+        id: themeTransitionAnimation
+        ScriptAction {
+            script: {
+                themeTransitionRunning = true
+                themeTransitionOverlay.opacity = 0
+                themeTransitionOverlay.visible = true
+            }
+        }
+        NumberAnimation {
+            target: themeTransitionOverlay
+            property: "opacity"
+            from: 0
+            to: 0.28
+            duration: 85
+            easing.type: Easing.OutQuad
+        }
+        ScriptAction {
+            script: {
+                if (pendingThemeAction === 2)
+                    furinaTheme = !furinaTheme
+                else
+                    darkMode = pendingDarkModeValue
+                pendingThemeAction = 0
+                if (autoSaveEnabled)
+                    saveCurrent(false)
+            }
+        }
+        PauseAnimation { duration: 16 }
+        NumberAnimation {
+            target: themeTransitionOverlay
+            property: "opacity"
+            from: 0.28
+            to: 0
+            duration: 190
+            easing.type: Easing.OutCubic
+        }
+        ScriptAction {
+            script: {
+                themeTransitionOverlay.visible = false
+                themeTransitionRunning = false
+            }
+        }
+    }
+
+    Popup {
+        id: themeTransitionOverlay
+        parent: Overlay.overlay
+        x: 0
+        y: 0
+        width: parent ? parent.width : window.width
+        height: parent ? parent.height : window.height
+        z: 100000
+        visible: false
+        opacity: 0
+        modal: true
+        dim: false
+        padding: 0
+        closePolicy: Popup.NoAutoClose
+        enter: Transition {}
+        exit: Transition {}
+
+        background: Rectangle { color: themeTransitionColor }
+        contentItem: Item {}
+    }
+
     Connections {
         target: calculatorBridge
+        function onSystemThemeChanged(isDark) {
+            if (followSystemTheme)
+                setDarkModeAnimated(isDark)
+        }
         function onUgcRecognitionFinished(payload) {
             finishUgcRecognition(payload)
         }
@@ -1880,7 +2649,7 @@ ApplicationWindow {
         padding: 0
 
         background: Rectangle {
-            color: "#f2ffffff"
+            color: (themeColor("#f2000000", "#f2ffffff", "#f20f1529", "#f2f8fbff"))
             border.width: 0
         }
 
@@ -1894,20 +2663,20 @@ ApplicationWindow {
                     Layout.preferredWidth: 48
                     Layout.preferredHeight: 48
                     running: ugcRecognitionBusy
-                    palette.dark: "#171717"
-                    palette.highlight: "#171717"
+                    palette.dark: (themeColor("#e8e8e8", "#171717", "#f3f7fd", "#18223e"))
+                    palette.highlight: (themeColor("#e8e8e8", "#171717", "#f3f7fd", "#18223e"))
                 }
                 Label {
                     Layout.alignment: Qt.AlignHCenter
                     text: "正在识别截图"
-                    color: "#171717"
+                    color: (themeColor("#e8e8e8", "#171717", "#f3f7fd", "#18223e"))
                     font.pixelSize: 15
                     font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.alignment: Qt.AlignHCenter
                     text: "正在校准安全区并读取四组角色数据，请稍候…"
-                    color: "#6f6f6a"
+                    color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                     font.pixelSize: 11
                 }
             }
@@ -1924,22 +2693,25 @@ ApplicationWindow {
     Dialog {
         id: ugcErrorDialog
         parent: Overlay.overlay
+        Overlay.modal: Rectangle {
+            color: darkMode ? "#80000000" : "#66000000"
+        }
         anchors.centerIn: parent
         width: Math.min(window.width - 80, 520)
         modal: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
             radius: 3
-            color: "#ffffff"
+            color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
             border.width: 1
-            border.color: "#9b3c3c"
+            border.color: (themeColor("#df6b6b", "#9b3c3c", "#e77e78", "#b45252"))
         }
         contentItem: ColumnLayout {
             spacing: 16
             Label {
                 Layout.fillWidth: true
                 text: "截图识别失败"
-                color: "#e7a79a"
+                color: (themeColor("#ffaaa0", "#e7a79a", "#ff9a91", "#e77e78"))
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
             }
@@ -1947,7 +2719,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: ugcRecognitionError
                 wrapMode: Text.Wrap
-                color: "#292927"
+                color: (themeColor("#d6d6d8", "#323232", "#b1c0d7", "#5f6f89"))
                 font.pixelSize: 12
             }
             AppButton {
@@ -1963,6 +2735,9 @@ ApplicationWindow {
     Dialog {
         id: ugcResultDialog
         parent: Overlay.overlay
+        Overlay.modal: Rectangle {
+            color: darkMode ? "#80000000" : "#66000000"
+        }
         anchors.centerIn: parent
         width: Math.min(window.width - 60, 980)
         height: Math.min(window.height - 60, 590)
@@ -1970,9 +2745,9 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
         background: Rectangle {
             radius: 3
-            color: "#ffffff"
+            color: (themeColor("#252525", "#ffffff", "#192543", "#ffffff"))
             border.width: 1
-            border.color: "#70706b"
+            border.color: (themeColor("#555555", "#70706b", "#5874a3", "#91add0"))
         }
         contentItem: ColumnLayout {
             spacing: 14
@@ -1983,14 +2758,14 @@ ApplicationWindow {
                     spacing: 2
                     Label {
                         text: "UGC 角色面板识别结果"
-                        color: "#1e1e1c"
+                        color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
                         font.pixelSize: 18
                         font.weight: Font.DemiBold
                     }
                     Label {
                         text: "已通过四个白色方块校准安全区 · OCR: "
                             + String(ugcRecognitionInfo.ocrBackend || "—")
-                        color: "#6f6f6a"
+                        color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                         font.pixelSize: 10
                     }
                 }
@@ -2015,66 +2790,84 @@ ApplicationWindow {
                         id: ugcCharacterCard
                         required property var modelData
                         required property int index
-                        checkable: true
-                        checked: index === ugcSelectedIndex
-                        Layout.fillWidth: true
+                        property bool selected: index === ugcSelectedIndex
+                        property real cardWidth: selected ? 252 : 215
+                        Layout.preferredWidth: cardWidth
                         Layout.fillHeight: true
                         onClicked: ugcSelectedIndex = index
 
-                        background: Rectangle {
-                            radius: 3
-                            color: ugcCharacterCard.checked
-                                ? (ugcCharacterCard.hovered ? "#fafafa" : "#fafafa")
-                                : (ugcCharacterCard.hovered ? "#ffffff" : "#ffffff")
-                            border.width: ugcCharacterCard.checked ? 2 : 1
-                            border.color: ugcCharacterCard.checked ? "#232323" : "#d8d8d3"
-                            Behavior on color { ColorAnimation { duration: 110 } }
+                        Behavior on cardWidth {
+                            NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
                         }
 
-                        contentItem: ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 8
-                            Label {
-                                text: modelData.name
-                                color: "#1e1e1c"
-                                font.pixelSize: 15
-                                font.weight: Font.DemiBold
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 1
-                                color: "#c7c7c1"
-                            }
-                            Label { text: "ATK"; color: "#6f6f6a"; font.pixelSize: 10 }
-                            Label {
-                                text: modelData.display.atk
-                                color: "#171717"
-                                font.pixelSize: 20
-                                font.weight: Font.DemiBold
-                            }
-                            Label {
-                                text: "白值  " + modelData.display.basicAtk
-                                color: "#484844"
-                                font.pixelSize: 11
-                            }
-                            Label {
-                                text: "暴击率  " + modelData.display.critRatePercent + "%"
-                                color: "#484844"
-                                font.pixelSize: 11
-                            }
-                            Label {
-                                text: "暴击伤害  " + modelData.display.critDamagePercent + "%"
-                                color: "#484844"
-                                font.pixelSize: 11
-                            }
-                            Item { Layout.fillHeight: true }
-                            Label {
-                                Layout.fillWidth: true
-                                text: "原始：" + modelData.raw.atk
-                                color: "#777773"
-                                font.pixelSize: 9
-                                elide: Text.ElideRight
+                        background: Rectangle {
+                            radius: 3
+                            color: ugcCharacterCard.selected
+                                ? (ugcCharacterCard.hovered ? (themeColor("#3d3d3d", "#f5f5f5", "#4d6fc3", "#d5f2fc")) : (themeColor("#333333", "#f2f2f2", "#3d5caa", "#e1f7fe")))
+                                : (ugcCharacterCard.hovered ? (themeColor("#333333", "#f7f7f7", "#2a3d63", "#f4f7fb")) : (themeColor("#2b2b2b", "#ffffff", "#223253", "#fbfdff")))
+                            border.width: ugcCharacterCard.selected ? 2 : 1
+                            border.color: ugcCharacterCard.selected ? (themeColor("#707070", "#232323", "#55d7fa", "#30488f")) : (themeColor("#383838", "#e1e1e1", "#304466", "#dee8f2"))
+                            Behavior on color { enabled: !themeTransitionRunning; ColorAnimation { duration: 110 } }
+                        }
+
+                        contentItem: Item {
+                            clip: true
+
+                            ColumnLayout {
+                                id: ugcCardContent
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                spacing: 8
+                                transformOrigin: Item.Center
+                                // Keep the selected content at its natural size; shrink idle cards
+                                // slightly so selection feels larger without consuming its inner margin.
+                                scale: ugcCharacterCard.selected ? 1 : 0.95
+
+                                Behavior on scale {
+                                    NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                                }
+
+                                Label {
+                                    text: modelData.name
+                                    color: (themeColor("#e1e1e3", "#1b1b1b", "#f3f7fd", "#18223e"))
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 1
+                                    color: (themeColor("#4a4a4a", "#d5d5d5", "#3a5077", "#cfdceb"))
+                                }
+                                Label { text: "ATK"; color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89")); font.pixelSize: 10 }
+                                Label {
+                                    text: modelData.display.atk
+                                    color: (themeColor("#e8e8e8", "#171717", "#f3f7fd", "#18223e"))
+                                    font.pixelSize: 20
+                                    font.weight: Font.DemiBold
+                                }
+                                Label {
+                                    text: "白值  " + modelData.display.basicAtk
+                                    color: (themeColor("#b7b7bb", "#505050", "#b1c0d7", "#5f6f89"))
+                                    font.pixelSize: 11
+                                }
+                                Label {
+                                    text: "暴击率  " + modelData.display.critRatePercent + "%"
+                                    color: (themeColor("#b7b7bb", "#505050", "#b1c0d7", "#5f6f89"))
+                                    font.pixelSize: 11
+                                }
+                                Label {
+                                    text: "暴击伤害  " + modelData.display.critDamagePercent + "%"
+                                    color: (themeColor("#b7b7bb", "#505050", "#b1c0d7", "#5f6f89"))
+                                    font.pixelSize: 11
+                                }
+                                Item { Layout.fillHeight: true }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "原始：" + modelData.raw.atk
+                                    color: (themeColor("#88888c", "#777777", "#8293ae", "#8795aa"))
+                                    font.pixelSize: 9
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }
@@ -2085,7 +2878,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Label {
                     text: "选择一个角色位置后应用到当前配置槽"
-                    color: "#6f6f6a"
+                    color: (themeColor("#909095", "#616161", "#8293ae", "#5f6f89"))
                     font.pixelSize: 11
                 }
                 Item { Layout.fillWidth: true }
@@ -2098,7 +2891,7 @@ ApplicationWindow {
                     onClicked: applyUgcCharacter(ugcCharacters[ugcSelectedIndex])
                     contentItem: Text {
                         text: applyUgcButton.text
-                        color: applyUgcButton.enabled ? "#ffffff" : "#9a9a96"
+                        color: applyUgcButton.enabled ? (themeColor("#f5f5f5", "#ffffff", "#ffffff", "#ffffff")) : (themeColor("#909090", "#9a9a96", "#66758e", "#aab4c2"))
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
                         horizontalAlignment: Text.AlignHCenter
@@ -2107,12 +2900,12 @@ ApplicationWindow {
                     background: Rectangle {
                         radius: 3
                         color: !applyUgcButton.enabled
-                            ? "#fafafa"
+                            ? (themeColor("#252525", "#fafafa", "#192543", "#f8fbff"))
                             : (applyUgcButton.down
-                                ? "#30302e"
-                                : (applyUgcButton.hovered ? "#161616" : "#252525"))
+                                ? (themeColor("#606060", "#454545", "#5b7ed0", "#263a77"))
+                                : (applyUgcButton.hovered ? (themeColor("#555555", "#3b3b3b", "#4d6fc3", "#3d5caa")) : (themeColor("#4a4a4a", "#323232", "#3d5caa", "#30488f"))))
                         border.width: 1
-                        border.color: applyUgcButton.enabled ? "#171717" : "#d2d2cd"
+                        border.color: applyUgcButton.enabled ? (themeColor("#686868", "#2a2a2a", "#5874a3", "#263a77")) : (themeColor("#383838", "#e5e5e5", "#304466", "#dee8f2"))
                     }
                 }
             }
@@ -2121,6 +2914,9 @@ ApplicationWindow {
 
     AtkPage {
         id: atkPage
+        darkMode: window.darkMode
+        furinaTheme: window.furinaTheme
+        themeTransitionRunning: window.themeTransitionRunning
         anchors.fill: parent
         z: currentPage === 1 ? 2 : 1
         enabled: currentPage === 1

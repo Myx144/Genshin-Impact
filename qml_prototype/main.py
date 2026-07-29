@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import sys
+from ctypes import wintypes
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot, QUrl
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot, QUrl
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+APP_ICON_FILE = Path(__file__).with_name("Columbina.ico")
+WINDOWS_APP_USER_MODEL_ID = "Myx144.GenshinDamageCalculator"
+_WINDOW_ICON_HANDLES: list[int] = []
 sys.path.insert(0, str(PROJECT_ROOT))
 
 ATK_SAVE_FILE = Path.home() / ".genshin_atk_artifacts.json"
@@ -26,6 +31,148 @@ try:
     from .recognition.ugc_panel import RecognitionError, recognise_ugc_panel
 except ImportError:  # Direct execution: python qml_prototype/main.py
     from recognition.ugc_panel import RecognitionError, recognise_ugc_panel
+
+
+def _set_windows_app_user_model_id() -> bool:
+    """Give the Python-hosted process its own Windows taskbar identity."""
+    if sys.platform != "win32":
+        return False
+    try:
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        setter = shell32.SetCurrentProcessExplicitAppUserModelID
+        setter.argtypes = [wintypes.LPCWSTR]
+        setter.restype = ctypes.c_long
+        return setter(WINDOWS_APP_USER_MODEL_ID) == 0
+    except (AttributeError, OSError):
+        return False
+
+
+def _apply_windows_native_icon(window: object) -> bool:
+    """Force the ICO onto the HWND and its Qt window class for the taskbar."""
+    if sys.platform != "win32" or not APP_ICON_FILE.exists():
+        return False
+    try:
+        hwnd_value = int(window.winId())  # type: ignore[attr-defined]
+        if not hwnd_value:
+            return False
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        load_image = user32.LoadImageW
+        load_image.argtypes = [
+            wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        load_image.restype = wintypes.HANDLE
+        send_message = user32.SendMessageW
+        send_message.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+        send_message.restype = wintypes.LPARAM
+        set_class_long_ptr = user32.SetClassLongPtrW
+        set_class_long_ptr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        set_class_long_ptr.restype = ctypes.c_ssize_t
+
+        IMAGE_ICON = 1
+        LR_LOADFROMFILE = 0x0010
+        WM_SETICON = 0x0080
+        ICON_SMALL = 0
+        ICON_BIG = 1
+        GCLP_HICON = -14
+        GCLP_HICONSM = -34
+        icon_path = str(APP_ICON_FILE.resolve())
+        big_icon = load_image(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        small_icon = load_image(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if not big_icon or not small_icon:
+            return False
+
+        hwnd = wintypes.HWND(hwnd_value)
+        big_value = int(big_icon)
+        small_value = int(small_icon)
+        send_message(hwnd, WM_SETICON, ICON_BIG, big_value)
+        send_message(hwnd, WM_SETICON, ICON_SMALL, small_value)
+        # Qt's shared native window class otherwise retains python.exe's class icon.
+        set_class_long_ptr(hwnd, GCLP_HICON, big_value)
+        set_class_long_ptr(hwnd, GCLP_HICONSM, small_value)
+        _WINDOW_ICON_HANDLES.extend([big_value, small_value])
+        return True
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _system_prefers_dark() -> bool:
+    """Return Qt's current system color-scheme preference when it is available."""
+    app = QGuiApplication.instance()
+    if app is None:
+        return False
+    return app.styleHints().colorScheme() == Qt.ColorScheme.Dark
+
+
+def _enable_windows_11_rounded_corners(window: object) -> bool:
+    """Request native Win11 rounding for the frameless top-level HWND.
+
+    Per-pixel transparent QML corners cannot receive DWM rounding.  Instead, keep an
+    opaque window, retain a thin native sizing frame for DWM eligibility, and ask the
+    compositor to apply its own rounded rectangle to the entire window surface.
+    """
+    if sys.platform != "win32":
+        return False
+
+    try:
+        hwnd_value = int(window.winId())  # type: ignore[attr-defined]
+        if not hwnd_value:
+            return False
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+
+        get_window_long_ptr = user32.GetWindowLongPtrW
+        get_window_long_ptr.argtypes = [wintypes.HWND, ctypes.c_int]
+        get_window_long_ptr.restype = ctypes.c_ssize_t
+        set_window_long_ptr = user32.SetWindowLongPtrW
+        set_window_long_ptr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        set_window_long_ptr.restype = ctypes.c_ssize_t
+        set_window_pos = user32.SetWindowPos
+        set_window_pos.argtypes = [
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        set_window_pos.restype = wintypes.BOOL
+
+        # A thin native frame makes a custom title-bar window eligible for DWM corners
+        # without restoring a visible system caption.  QML still fixes min/max size.
+        GWL_STYLE = -16
+        WS_THICKFRAME = 0x00040000
+        SWP_NOSIZE = 0x0001
+        SWP_NOMOVE = 0x0002
+        SWP_NOZORDER = 0x0004
+        SWP_NOACTIVATE = 0x0010
+        SWP_FRAMECHANGED = 0x0020
+        hwnd = wintypes.HWND(hwnd_value)
+        style = int(get_window_long_ptr(hwnd, GWL_STYLE))
+        if not style & WS_THICKFRAME:
+            set_window_long_ptr(hwnd, GWL_STYLE, style | WS_THICKFRAME)
+            set_window_pos(
+                hwnd, wintypes.HWND(), 0, 0, 0, 0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            )
+
+        # Windows 11 DWM corner preference constants.
+        DWMWA_WINDOW_CORNER_PREFERENCE = 33
+        DWMWCP_ROUND = 2
+        preference = ctypes.c_int(DWMWCP_ROUND)
+        set_dwm_attribute = dwmapi.DwmSetWindowAttribute
+        set_dwm_attribute.argtypes = [
+            wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+        ]
+        set_dwm_attribute.restype = ctypes.c_long
+        result = set_dwm_attribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            ctypes.byref(preference),
+            ctypes.sizeof(preference),
+        )
+        return result == 0
+    except (AttributeError, OSError, TypeError, ValueError):
+        # Older Windows or a non-Windows Qt platform simply keep the normal Qt window.
+        return False
 
 from damage_calculator import (
     INPUT_FIELDS,
@@ -55,11 +202,16 @@ class UgcRecognitionTask(QRunnable):
 
 class CalculatorBridge(QObject):
     ugcRecognitionFinished = Signal(str)
+    systemThemeChanged = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._recognition_pool = QThreadPool(self)
         self._recognition_pool.setMaxThreadCount(1)
+
+    @Slot(result=bool)
+    def systemPrefersDark(self) -> bool:
+        return _system_prefers_dark()
 
     @staticmethod
     def _default_atk_config() -> dict:
@@ -206,6 +358,15 @@ class CalculatorBridge(QObject):
             "mode": state["mode"],
             "mainPctMode": bool(state.get("main_pct_mode", False)),
             "autoSave": str(values.get("__auto_save__", "True")).lower() != "false",
+            "theme": (
+                {
+                    "followSystem": bool(raw["theme"].get("followSystem", True)),
+                    "darkMode": bool(raw["theme"].get("darkMode", False)),
+                    "furinaTheme": bool(raw["theme"].get("furinaTheme", False)),
+                }
+                if isinstance(raw.get("theme"), dict)
+                else None
+            ),
             "condBonuses": {
                 key: [str(entry[0]), bool(entry[1])]
                 for key, entry in state.get("cond_bonuses", {}).items()
@@ -231,6 +392,14 @@ class CalculatorBridge(QObject):
             raw["values"] = raw_values
             raw["mode"] = incoming.get("mode", "期望")
             raw["main_pct_mode"] = bool(incoming.get("mainPctMode", False))
+
+            incoming_theme = incoming.get("theme")
+            if isinstance(incoming_theme, dict):
+                raw["theme"] = {
+                    "followSystem": bool(incoming_theme.get("followSystem", True)),
+                    "darkMode": bool(incoming_theme.get("darkMode", False)),
+                    "furinaTheme": bool(incoming_theme.get("furinaTheme", False)),
+                }
 
             incoming_cond = incoming.get("condBonuses")
             if isinstance(incoming_cond, dict):
@@ -310,11 +479,21 @@ class CalculatorBridge(QObject):
 
 
 def main() -> int:
+    _set_windows_app_user_model_id()
     app = QGuiApplication(sys.argv)
     app.setOrganizationName("GenshinImpact")
     app.setApplicationName("GenshinDamageCalculator")
+    if APP_ICON_FILE.exists():
+        app_icon = QIcon(str(APP_ICON_FILE))
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
 
     bridge = CalculatorBridge()
+    style_hints = app.styleHints()
+    style_hints.colorSchemeChanged.connect(
+        lambda scheme: bridge.systemThemeChanged.emit(scheme == Qt.ColorScheme.Dark)
+    )
+
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("calculatorBridge", bridge)
     engine.rootContext().setContextProperty(
@@ -334,6 +513,17 @@ def main() -> int:
     engine.load(qml_file)
     if not engine.rootObjects():
         return 1
+
+    root_window = engine.rootObjects()[0]
+    if not app.windowIcon().isNull():
+        root_window.setIcon(app.windowIcon())
+
+    def apply_native_window_customizations() -> None:
+        _enable_windows_11_rounded_corners(root_window)
+        _apply_windows_native_icon(root_window)
+
+    # Wait until Qt has created/shown the native HWND before customizing DWM and WM_SETICON.
+    QTimer.singleShot(0, apply_native_window_customizations)
     return app.exec()
 
 
