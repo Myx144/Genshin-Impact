@@ -74,3 +74,13 @@ qml_prototype/AppCheckBox.qml 通用复选框
 qml_prototype/main.py        QML Bridge、保存、OCR 任务、Windows 原生窗口处理
 damage_calculator.py         伤害计算后端
 ```
+
+## 源码发布包
+
+仓库根目录的 `tools/package_qml_release.ps1` 可生成 GitHub Release Asset。生成的 ZIP 会把本目录内容作为运行包根目录，并补齐伤害计算后端、启动脚本和依赖清单。
+
+```powershell
+.\tools\package_qml_release.ps1 -Version v0.1.1
+```
+
+生成结果在 `dist/`；该目录已被 `.gitignore` 忽略，发布时手动上传 ZIP/7z 到 GitHub Release 即可。

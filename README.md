@@ -177,3 +177,27 @@ python damage_calculator.py \
 ```
 
 程序会输出各分区系数以及最终 `expected_damage`。
+
+## 创建 GitHub Release ZIP
+
+GitHub 自动生成的 Source code ZIP 只是仓库源码快照。若要发布能直接运行的 QML 源码包，请在仓库根目录执行：
+
+```powershell
+.\tools\package_qml_release.ps1 -Version v0.1.1
+```
+
+生成文件位于：
+
+```text
+dist\GenshinDamageCalculator-v0.1.1.zip
+```
+
+这个 ZIP 的根目录就是 QML 程序目录，包含 `main.py`、QML 文件、识别代码、计算后端、`requirements.txt`、`start.bat` 和 `Columbina.ico`。在 GitHub 的 Release 编辑页面中，将该 ZIP 拖到 Assets 区域上传即可。
+
+如果已安装 7-Zip，也可以生成 7z：
+
+```powershell
+.\tools\package_qml_release.ps1 -Version v0.1.1 -Format 7z
+```
+
+发布前应先提交打包脚本及运行包支持代码，并用相同版本创建 Git tag；例如现有 `v0.1.0` 已发布时，下一次建议使用 `v0.1.1`。

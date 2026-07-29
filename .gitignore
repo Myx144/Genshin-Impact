@@ -19,3 +19,6 @@ __pycache__/
 # Local preview and smoke-test artifacts
 qml_prototype/_*.png
 qml_prototype/_*.py
+
+# Locally generated GitHub Release packages
+dist/

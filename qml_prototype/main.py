@@ -13,6 +13,11 @@ from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Release ZIPs place the QML frontend and calculation backend in one folder.
+# Fall back to that folder when this file is no longer inside the repository tree.
+if not (PROJECT_ROOT / "damage_calculator.py").exists():
+    PROJECT_ROOT = Path(__file__).resolve().parent
+
 APP_ICON_FILE = Path(__file__).with_name("Columbina.ico")
 WINDOWS_APP_USER_MODEL_ID = "Myx144.GenshinDamageCalculator"
 _WINDOW_ICON_HANDLES: list[int] = []
