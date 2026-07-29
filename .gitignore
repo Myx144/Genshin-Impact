@@ -1,0 +1,21 @@
+# Python bytecode and runtime cache
+__pycache__/
+*.py[cod]
+
+# Backup and temporary editor files
+*.bak
+*.tmp
+*.temp
+*.orig
+*~
+*.swp
+*.swo
+
+# Visual Studio Code local workspace state
+.vscode/
+*.code-workspace
+.history/
+
+# Local preview and smoke-test artifacts
+qml_prototype/_*.png
+qml_prototype/_*.py
