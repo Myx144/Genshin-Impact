@@ -238,6 +238,40 @@ def _projection_ranges(mask: np.ndarray) -> list[tuple[int, int]]:
     return filtered
 
 
+def _crop_numeric_glyphs(row: np.ndarray, position: int) -> np.ndarray:
+    """Drop the leading colon while retaining the complete decimal number.
+
+    The UGC layout places a colon immediately before every value. At higher
+    resolutions its two dots survive normalization clearly enough for
+    Tesseract to interpret them as a leading 1 or 2. Real digits have a tall
+    connected component, so the first tall glyph is a stable number boundary.
+    """
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(row, 8)
+    if count <= 1:
+        raise RecognitionError(f"{position} 号位存在空白数值行")
+
+    components = stats[1:]
+    max_height = int(np.max(components[:, cv2.CC_STAT_HEIGHT]))
+    minimum_digit_height = max(6, int(round(max_height * 0.62)))
+    digit_components = [
+        component
+        for component in components
+        if int(component[cv2.CC_STAT_HEIGHT]) >= minimum_digit_height
+    ]
+    if not digit_components:
+        raise RecognitionError(f"{position} 号位无法定位数值起点")
+
+    first_digit_x = min(int(component[cv2.CC_STAT_LEFT]) for component in digit_components)
+    columns = np.flatnonzero(np.count_nonzero(row, axis=0) > 0)
+    columns = columns[columns >= first_digit_x]
+    if columns.size == 0:
+        raise RecognitionError(f"{position} 号位存在空白数值行")
+
+    left = max(0, first_digit_x - 2)
+    right = min(row.shape[1], int(columns[-1]) + 3)
+    return row[:, left:right]
+
+
 def extract_number_rows(frame: np.ndarray, position: int) -> list[np.ndarray]:
     x, y, width, height = VALUE_BLOCKS[position]
     block = frame[y:y + height, x:x + width]
@@ -251,10 +285,7 @@ def extract_number_rows(frame: np.ndarray, position: int) -> list[np.ndarray]:
         start = max(0, start - 2)
         end = min(mask.shape[0] - 1, end + 2)
         row = mask[start:end + 1]
-        columns = np.flatnonzero(np.count_nonzero(row, axis=0) > 0)
-        if columns.size == 0:
-            raise RecognitionError(f"{position} 号位存在空白数值行")
-        row = row[:, max(0, int(columns[0]) - 2):min(row.shape[1], int(columns[-1]) + 3)]
+        row = _crop_numeric_glyphs(row, position)
         row = cv2.copyMakeBorder(row, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=0)
         row = cv2.resize(row, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
         _threshold, row = cv2.threshold(row, 110, 255, cv2.THRESH_BINARY)
@@ -299,6 +330,13 @@ def decode_character(raw_values: dict[str, str], position: int) -> dict:
         if raw < 0:
             raise RecognitionError(f"{position} 号位 {field} 不能为负数")
         decoded[field] = _decimal_text(raw / SCALES[field])
+
+    for field in ("atk", "basic_atk"):
+        if Decimal(decoded[field]) >= Decimal("10000"):
+            label = "ATK" if field == "atk" else "白值"
+            raise RecognitionError(
+                f"{position} 号位 {label} 识别为 {decoded[field]}，超过四位数上限，请重新截图"
+            )
 
     return {
         "position": position,

@@ -5,12 +5,14 @@ from __future__ import annotations
 import ctypes
 import json
 import sys
+import tempfile
 from ctypes import wintypes
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot, QUrl
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtCore import QPoint, QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot, QUrl
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuick import QQuickWindow
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Release ZIPs place the QML frontend and calculation backend in one folder.
@@ -24,6 +26,13 @@ _WINDOW_ICON_HANDLES: list[int] = []
 sys.path.insert(0, str(PROJECT_ROOT))
 
 ATK_SAVE_FILE = Path.home() / ".genshin_atk_artifacts.json"
+# Theme preferences are global application settings, separate from comparison slots.
+GLOBAL_SETTINGS_FILE = Path.home() / ".genshin_damage_calculator_global.json"
+DEFAULT_THEME_SETTINGS = {
+    "followSystem": True,
+    "darkMode": False,
+    "furinaTheme": False,
+}
 ATK_SLOT_FIELDS = {
     "flower": ("sub_flat", "sub_pct"),
     "plume": ("main_flat", "sub_pct"),
@@ -205,14 +214,65 @@ class UgcRecognitionTask(QRunnable):
         )
 
 
+class WindowCaptureOverlay(QQuickWindow):
+    """Intercept one desktop click while leaving the selected window visible."""
+
+    captureRequested = Signal(int, int)
+    captureCancelled = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setColor(QColor("#0f1529"))
+        self.setOpacity(0.08)
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        self.setTitle("选择要识别的游戏窗口")
+
+    def begin(self) -> bool:
+        screens = QGuiApplication.screens()
+        if not screens:
+            return False
+        virtual_geometry = screens[0].geometry()
+        for screen in screens[1:]:
+            virtual_geometry = virtual_geometry.united(screen.geometry())
+        self.setGeometry(virtual_geometry)
+        self.show()
+        self.raise_()
+        self.requestActivate()
+        return True
+
+    def mousePressEvent(self, event: object) -> None:
+        button = event.button()  # type: ignore[attr-defined]
+        if button == Qt.MouseButton.LeftButton:
+            point = event.globalPosition().toPoint()  # type: ignore[attr-defined]
+            self.hide()
+            self.captureRequested.emit(point.x(), point.y())
+        elif button == Qt.MouseButton.RightButton:
+            self.hide()
+            self.captureCancelled.emit()
+
+    def keyPressEvent(self, event: object) -> None:
+        if event.key() == Qt.Key.Key_Escape:  # type: ignore[attr-defined]
+            self.hide()
+            self.captureCancelled.emit()
+            return
+        super().keyPressEvent(event)  # type: ignore[arg-type]
+
+
 class CalculatorBridge(QObject):
     ugcRecognitionFinished = Signal(str)
+    ugcWindowCaptureFinished = Signal(str)
     systemThemeChanged = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._recognition_pool = QThreadPool(self)
         self._recognition_pool.setMaxThreadCount(1)
+        self._capture_overlay: WindowCaptureOverlay | None = None
 
     @Slot(result=bool)
     def systemPrefersDark(self) -> bool:
@@ -335,6 +395,56 @@ class CalculatorBridge(QObject):
             slots.append({"id": slot, "name": name, "hasData": _slot_file(slot).exists()})
         return json.dumps({"ok": True, "currentSlot": _get_meta_slot(), "slots": slots}, ensure_ascii=False)
 
+    @staticmethod
+    def _normalise_theme_settings(theme: object) -> dict[str, bool]:
+        if not isinstance(theme, dict):
+            return dict(DEFAULT_THEME_SETTINGS)
+        return {
+            "followSystem": bool(theme.get("followSystem", True)),
+            "darkMode": bool(theme.get("darkMode", False)),
+            "furinaTheme": bool(theme.get("furinaTheme", False)),
+        }
+
+    @Slot(result=str)
+    def loadGlobalTheme(self) -> str:
+        """Load one application-wide theme, migrating the active legacy slot once."""
+        theme: object | None = None
+        if GLOBAL_SETTINGS_FILE.exists():
+            try:
+                payload = json.loads(GLOBAL_SETTINGS_FILE.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    theme = payload.get("theme")
+            except (OSError, json.JSONDecodeError):
+                theme = None
+
+        if not isinstance(theme, dict):
+            # Older QML builds wrote theme data into each slot.  Use the active
+            # slot as the one-time migration source, then stop consulting slots.
+            legacy = self._read_raw_slot(_get_meta_slot()).get("theme")
+            theme = legacy if isinstance(legacy, dict) else DEFAULT_THEME_SETTINGS
+
+        normalised = self._normalise_theme_settings(theme)
+        try:
+            GLOBAL_SETTINGS_FILE.write_text(
+                json.dumps({"theme": normalised}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            return json.dumps({"ok": True, "theme": normalised}, ensure_ascii=False)
+        except OSError as error:
+            return json.dumps({"ok": False, "error": str(error), "theme": normalised}, ensure_ascii=False)
+
+    @Slot(str, result=str)
+    def saveGlobalTheme(self, theme_json: str) -> str:
+        try:
+            theme = self._normalise_theme_settings(json.loads(theme_json))
+            GLOBAL_SETTINGS_FILE.write_text(
+                json.dumps({"theme": theme}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            return json.dumps({"ok": True}, ensure_ascii=False)
+        except (OSError, TypeError, json.JSONDecodeError) as error:
+            return json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False)
+
     @Slot(int, result=str)
     def loadSlot(self, slot: int) -> str:
         if slot < 1 or slot > NUM_SLOTS:
@@ -363,15 +473,6 @@ class CalculatorBridge(QObject):
             "mode": state["mode"],
             "mainPctMode": bool(state.get("main_pct_mode", False)),
             "autoSave": str(values.get("__auto_save__", "True")).lower() != "false",
-            "theme": (
-                {
-                    "followSystem": bool(raw["theme"].get("followSystem", True)),
-                    "darkMode": bool(raw["theme"].get("darkMode", False)),
-                    "furinaTheme": bool(raw["theme"].get("furinaTheme", False)),
-                }
-                if isinstance(raw.get("theme"), dict)
-                else None
-            ),
             "condBonuses": {
                 key: [str(entry[0]), bool(entry[1])]
                 for key, entry in state.get("cond_bonuses", {}).items()
@@ -397,14 +498,6 @@ class CalculatorBridge(QObject):
             raw["values"] = raw_values
             raw["mode"] = incoming.get("mode", "期望")
             raw["main_pct_mode"] = bool(incoming.get("mainPctMode", False))
-
-            incoming_theme = incoming.get("theme")
-            if isinstance(incoming_theme, dict):
-                raw["theme"] = {
-                    "followSystem": bool(incoming_theme.get("followSystem", True)),
-                    "darkMode": bool(incoming_theme.get("darkMode", False)),
-                    "furinaTheme": bool(incoming_theme.get("furinaTheme", False)),
-                }
 
             incoming_cond = incoming.get("condBonuses")
             if isinstance(incoming_cond, dict):
@@ -481,6 +574,97 @@ class CalculatorBridge(QObject):
     @Slot(str)
     def recognizeUgcScreenshotAsync(self, image_url: str) -> None:
         self._recognition_pool.start(UgcRecognitionTask(self, image_url))
+
+    @Slot(result=str)
+    def startUgcWindowCapture(self) -> str:
+        if sys.platform != "win32":
+            return json.dumps({
+                "ok": False,
+                "error": "点击窗口截图当前仅支持 Windows，请使用文件选择模式",
+            }, ensure_ascii=False)
+
+        if self._capture_overlay is None:
+            self._capture_overlay = WindowCaptureOverlay()
+            self._capture_overlay.captureRequested.connect(self._queue_window_capture)
+            self._capture_overlay.captureCancelled.connect(self._cancel_window_capture)
+
+        if not self._capture_overlay.begin():
+            return json.dumps({"ok": False, "error": "没有找到可用的显示器"}, ensure_ascii=False)
+        return json.dumps({"ok": True}, ensure_ascii=False)
+
+    @Slot(int, int)
+    def _queue_window_capture(self, x: int, y: int) -> None:
+        # Let the translucent selector leave the desktop before grabbing pixels.
+        QTimer.singleShot(140, lambda: self._capture_window_at(x, y))
+
+    @Slot()
+    def _cancel_window_capture(self) -> None:
+        self.ugcWindowCaptureFinished.emit(json.dumps({
+            "ok": False,
+            "cancelled": True,
+        }, ensure_ascii=False))
+
+    @staticmethod
+    def _window_at_point(x: int, y: int) -> tuple[int, str]:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        window_from_point = user32.WindowFromPoint
+        window_from_point.argtypes = [wintypes.POINT]
+        window_from_point.restype = wintypes.HWND
+        get_ancestor = user32.GetAncestor
+        get_ancestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        get_ancestor.restype = wintypes.HWND
+        is_window_visible = user32.IsWindowVisible
+        is_window_visible.argtypes = [wintypes.HWND]
+        is_window_visible.restype = wintypes.BOOL
+        is_iconic = user32.IsIconic
+        is_iconic.argtypes = [wintypes.HWND]
+        is_iconic.restype = wintypes.BOOL
+
+        hwnd = window_from_point(wintypes.POINT(x, y))
+        root = get_ancestor(hwnd, 2) if hwnd else None  # GA_ROOT
+        if not root or not is_window_visible(root) or is_iconic(root):
+            raise OSError("鼠标位置下没有可截图的窗口")
+
+        get_title_length = user32.GetWindowTextLengthW
+        get_title_length.argtypes = [wintypes.HWND]
+        get_title_length.restype = ctypes.c_int
+        get_title = user32.GetWindowTextW
+        get_title.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        get_title.restype = ctypes.c_int
+        length = get_title_length(root)
+        buffer = ctypes.create_unicode_buffer(max(length + 1, 1))
+        get_title(root, buffer, len(buffer))
+        return int(root), buffer.value.strip()
+
+    def _capture_window_at(self, x: int, y: int) -> None:
+        try:
+            hwnd, window_title = self._window_at_point(x, y)
+            screen = QGuiApplication.screenAt(QPoint(x, y))
+            if screen is None:
+                raise OSError("无法确定目标窗口所在的显示器")
+
+            pixmap = screen.grabWindow(hwnd)
+            if pixmap.isNull() or pixmap.width() < 320 or pixmap.height() < 240:
+                raise OSError("窗口截图失败，请确认游戏未最小化并使用窗口或无边框模式")
+
+            capture_directory = Path(tempfile.gettempdir()) / "GenshinDamageCalculator"
+            capture_directory.mkdir(parents=True, exist_ok=True)
+            capture_file = capture_directory / "ugc_window_capture.png"
+            if not pixmap.save(str(capture_file), "PNG"):
+                raise OSError("无法保存临时截图")
+
+            self.ugcWindowCaptureFinished.emit(json.dumps({
+                "ok": True,
+                "imageUrl": QUrl.fromLocalFile(str(capture_file)).toString(),
+                "windowTitle": window_title,
+                "width": pixmap.width(),
+                "height": pixmap.height(),
+            }, ensure_ascii=False))
+        except (AttributeError, OSError, TypeError, ValueError) as error:
+            self.ugcWindowCaptureFinished.emit(json.dumps({
+                "ok": False,
+                "error": f"窗口截图失败：{error}",
+            }, ensure_ascii=False))
 
 
 def main() -> int:

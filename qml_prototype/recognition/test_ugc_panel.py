@@ -6,6 +6,9 @@ import cv2
 import numpy as np
 
 from .ugc_panel import (
+    RecognitionError,
+    _crop_numeric_glyphs,
+    decode_character,
     extract_number_rows,
     locate_square_markers,
     normalise_marker_frame,
@@ -61,6 +64,26 @@ class FakeOcr:
 
 
 class UgcPanelRecognitionTests(unittest.TestCase):
+    def test_leading_colon_is_removed_before_ocr(self) -> None:
+        row = np.zeros((30, 180), np.uint8)
+        cv2.circle(row, (6, 10), 2, 255, -1)
+        cv2.circle(row, (6, 20), 2, 255, -1)
+        cv2.putText(row, "12328790.00", (20, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 255, 2)
+
+        cropped = _crop_numeric_glyphs(row, 2)
+        self.assertLess(cropped.shape[1], row.shape[1] - 10)
+        self.assertEqual(0, np.count_nonzero(cropped[:, :1]))
+        self.assertGreater(np.count_nonzero(cropped[:, 1:8]), 0)
+
+    def test_five_digit_atk_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RecognitionError, "超过四位数上限"):
+            decode_character({
+                "atk": "112328790.00",
+                "basic_atk": "7916047.00",
+                "crit_rate": "1514.00",
+                "crit_damage": "7719000.00",
+            }, 2)
+
     def test_markers_rows_and_decoding(self) -> None:
         image = build_panel()
         markers = locate_square_markers(image)
@@ -79,6 +102,18 @@ class UgcPanelRecognitionTests(unittest.TestCase):
         image = cv2.copyMakeBorder(scaled, 40, 65, 90, 35, cv2.BORDER_CONSTANT, value=(30, 30, 30))
         frame = normalise_marker_frame(image, locate_square_markers(image))
         self.assertEqual([4, 4, 4, 4], [len(extract_number_rows(frame, p)) for p in range(1, 5)])
+
+    def test_high_resolution_panel(self) -> None:
+        high_resolution = cv2.resize(
+            build_panel(), None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC
+        )
+        frame = normalise_marker_frame(
+            high_resolution, locate_square_markers(high_resolution)
+        )
+        self.assertEqual(
+            [4, 4, 4, 4],
+            [len(extract_number_rows(frame, position)) for position in range(1, 5)],
+        )
 
 
 if __name__ == "__main__":

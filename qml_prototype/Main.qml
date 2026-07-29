@@ -101,6 +101,7 @@ ApplicationWindow {
     property var ugcRecognitionInfo: ({})
     property string ugcRecognitionError: ""
     property bool ugcRecognitionBusy: false
+    property bool ugcWindowCaptureActive: false
     property bool sideMenuOpen: false
     property bool sideMenuTitlePushed: false
     property bool ugcImportedFieldsLocked: false
@@ -140,23 +141,40 @@ ApplicationWindow {
             darkMode = systemDark
     }
 
+    function saveGlobalThemeSettings() {
+        const response = JSON.parse(calculatorBridge.saveGlobalTheme(JSON.stringify({
+            followSystem: followSystemTheme,
+            darkMode: darkMode,
+            furinaTheme: furinaTheme
+        })))
+        if (!response.ok)
+            setStatusMessage("主题保存失败：" + response.error)
+    }
+
+    function loadGlobalThemeSettings() {
+        const response = JSON.parse(calculatorBridge.loadGlobalTheme())
+        if (!response.ok) {
+            setStatusMessage("主题读取失败：" + response.error)
+            return
+        }
+        restoreTheme(response.theme)
+    }
+
     function setFollowSystemTheme(enabled) {
         const next = Boolean(enabled)
         if (followSystemTheme === next)
             return
         followSystemTheme = next
-        if (autoSaveEnabled)
-            saveCurrent(false)
+        saveGlobalThemeSettings()
         if (next)
             applySystemTheme(true)
     }
 
     function toggleThemeAnimated() {
-        if (followSystemTheme) {
+        if (themeTransitionRunning)
+            return
+        if (followSystemTheme)
             followSystemTheme = false
-            if (autoSaveEnabled)
-                saveCurrent(false)
-        }
         setDarkModeAnimated(!darkMode)
     }
 
@@ -458,7 +476,6 @@ ApplicationWindow {
         critDamageOnly = response.mode === "暴伤"
         mainPctMode = response.mainPctMode
         autoSaveEnabled = response.autoSave === undefined ? true : Boolean(response.autoSave)
-        restoreTheme(response.theme)
         condBonuses = normalizeConditionalBonuses(response.condBonuses)
         updateEffectiveAtk()
         resultVisible = false
@@ -476,11 +493,6 @@ ApplicationWindow {
                 values: values,
                 mode: critDamageOnly ? "暴伤" : "期望",
                 mainPctMode: mainPctMode,
-                theme: {
-                    followSystem: followSystemTheme,
-                    darkMode: darkMode,
-                    furinaTheme: furinaTheme
-                },
                 condBonuses: condBonuses
             })
         ))
@@ -575,6 +587,57 @@ ApplicationWindow {
         ugcRecognitionError = ""
         setStatusMessage("正在识别 UGC 面板截图…")
         calculatorBridge.recognizeUgcScreenshotAsync(String(fileUrl))
+    }
+
+    function startUgcWindowCapture() {
+        ugcCaptureModeDialog.close()
+        ugcWindowCaptureActive = true
+        setStatusMessage("请将鼠标移到游戏窗口并单击，右键或 Esc 可取消")
+        window.hide()
+
+        let response
+        try {
+            response = JSON.parse(calculatorBridge.startUgcWindowCapture())
+        } catch (error) {
+            response = {"ok": false, "error": "无法启动窗口截图"}
+        }
+        if (!response.ok) {
+            ugcWindowCaptureActive = false
+            window.show()
+            window.raise()
+            window.requestActivate()
+            ugcRecognitionError = response.error || "无法启动窗口截图"
+            ugcErrorDialog.open()
+            setStatusMessage(ugcRecognitionError)
+        }
+    }
+
+    function finishUgcWindowCapture(payload) {
+        ugcWindowCaptureActive = false
+        window.show()
+        window.raise()
+        window.requestActivate()
+
+        let response
+        try {
+            response = JSON.parse(payload)
+        } catch (error) {
+            response = {"ok": false, "error": "窗口截图返回了无效结果"}
+        }
+        if (response.cancelled) {
+            setStatusMessage("已取消窗口截图")
+            return
+        }
+        if (!response.ok) {
+            ugcRecognitionError = response.error || "窗口截图失败"
+            ugcErrorDialog.open()
+            setStatusMessage(ugcRecognitionError)
+            return
+        }
+
+        const title = String(response.windowTitle || "游戏窗口")
+        setStatusMessage("已截取「" + title + "」，正在识别…")
+        recognizeUgcScreenshot(response.imageUrl)
     }
 
     function finishUgcRecognition(payload) {
@@ -947,6 +1010,7 @@ ApplicationWindow {
 
     Component.onCompleted: {
         initializeValues()
+        loadGlobalThemeSettings()
         reloadSlotList(true)
         applySystemTheme(false)
     }
@@ -1419,7 +1483,7 @@ ApplicationWindow {
                 Rectangle {
                     width: parent.width
                     height: 38
-                    color: themeColor("#2b2b2b", "#f7f7f7", "#1e2c4d", "#eef4fb")
+                    color: themeColor("#2b2b2b", "#f7f7f7", "#1e2c4d", "#dceff7")
 
                     Label {
                         anchors.left: parent.left
@@ -1930,8 +1994,8 @@ ApplicationWindow {
                                 id: ugcImportButton
                                 Layout.preferredWidth: 94
                                 Layout.preferredHeight: 34
-                                enabled: !ugcRecognitionBusy
-                                onClicked: ugcScreenshotFileDialog.open()
+                                enabled: !ugcRecognitionBusy && !ugcWindowCaptureActive
+                                onClicked: ugcCaptureModeDialog.open()
                                 contentItem: Text {
                                     anchors.fill: parent
                                     text: "截图识别"
@@ -2582,8 +2646,7 @@ ApplicationWindow {
                 else
                     darkMode = pendingDarkModeValue
                 pendingThemeAction = 0
-                if (autoSaveEnabled)
-                    saveCurrent(false)
+                saveGlobalThemeSettings()
             }
         }
         PauseAnimation { duration: 16 }
@@ -2632,6 +2695,9 @@ ApplicationWindow {
         }
         function onUgcRecognitionFinished(payload) {
             finishUgcRecognition(payload)
+        }
+        function onUgcWindowCaptureFinished(payload) {
+            finishUgcWindowCapture(payload)
         }
     }
 
@@ -2688,6 +2754,67 @@ ApplicationWindow {
         title: "选择 UGC 角色面板截图"
         nameFilters: ["图片文件 (*.png *.jpg *.jpeg *.bmp)", "所有文件 (*)"]
         onAccepted: recognizeUgcScreenshot(selectedFile.toString())
+    }
+
+    Dialog {
+        id: ugcCaptureModeDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: 420
+        modal: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 20
+        Overlay.modal: Rectangle {
+            color: darkMode ? "#80000000" : "#66000000"
+        }
+        background: Rectangle {
+            radius: 3
+            color: themeColor("#252525", "#ffffff", "#192543", "#ffffff")
+            border.width: 1
+            border.color: themeColor("#4a4a4a", "#d8d8d8", "#3a5077", "#d5e0ec")
+        }
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            Label {
+                Layout.fillWidth: true
+                text: "选择截图方式"
+                color: themeColor("#f1f1f1", "#1b1b1b", "#f3f7fd", "#18223e")
+                font.pixelSize: 16
+                font.weight: Font.DemiBold
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: themeColor("#3f3f3f", "#e2e2e2", "#304466", "#dee8f2")
+            }
+
+            AppButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 44
+                text: "点击游戏窗口"
+                onClicked: startUgcWindowCapture()
+            }
+
+            AppButton {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 44
+                text: "选择截图文件"
+                onClicked: {
+                    ugcCaptureModeDialog.close()
+                    ugcScreenshotFileDialog.open()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "窗口模式支持左键选择，右键或 Esc 取消"
+                color: themeColor("#909095", "#616161", "#8293ae", "#5f6f89")
+                font.pixelSize: 10
+                horizontalAlignment: Text.AlignHCenter
+            }
+        }
     }
 
     Dialog {

@@ -8,7 +8,7 @@
 python qml_prototype/main.py
 ```
 
-主界面包含星超导伤害计算、常驻 ATK 计算器、配置槽、自动保存、UGC 截图异步识别、主题切换和 Windows 无边框窗口支持。详细界面说明见 [`qml_prototype/README.md`](qml_prototype/README.md)。
+主界面包含星超导伤害计算、常驻 ATK 计算器、配置槽、自动保存、UGC 截图异步识别、主题切换和 Windows 无边框窗口支持。截图识别可直接点击游戏窗口自动截图，也可选择已有图片文件。详细界面说明见 [`qml_prototype/README.md`](qml_prototype/README.md)。
 
 ## 公式
 
@@ -66,13 +66,15 @@ python qml_prototype/main.py
 
 ### 配置、主题与自动保存
 
-QML 主界面包含 5 个配置槽。保存时会写入当前输入、伤害模式、百分比输入模式、条件 ATK 加成、自动保存状态，以及下列主题状态：
+QML 主界面包含 5 个配置槽。每个槽保存当前输入、伤害模式、百分比输入模式、条件 ATK 加成和自动保存状态。
+
+主题状态为全局设置，不与配置槽绑定，单独保存在用户目录的 `.genshin_damage_calculator_global.json`：
 
 - `followSystem`
 - `darkMode`
 - `furinaTheme`
 
-主题会随配置槽恢复；如果某个配置启用了“跟随系统”，读取后会按当前 Windows 系统主题决定实际浅色或深色。旧存档没有主题字段时保持兼容。
+首次升级时会从当前配置槽的旧主题字段自动迁移一次；之后切换配置槽不会改变主题。如果启用了“跟随系统”，程序会按当前 Windows 系统主题决定实际浅色或深色。
 
 伤害配置默认保存到用户目录下的 `.genshin_damage_calculator.json` 与各槽位文件；ATK 计算器配置保存在 `.genshin_atk_artifacts.json`。
 
