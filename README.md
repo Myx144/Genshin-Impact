@@ -1,6 +1,10 @@
 # 原神伤害计算器
 
 这是一个用于扩展原神角色伤害计算模块的 Python 项目。当前已实现 **星超导伤害** 模块，计算后端位于 `damage_calculator.py`；主界面采用 PySide6/QML Signal UI，后续模块通过顶部的计算模式选择器接入。
+<img width="1180" height="820" alt="image" src="https://github.com/user-attachments/assets/43f1866a-874a-4e9d-982b-3b48a074326a" />
+
+<img width="1180" height="820" alt="image" src="https://github.com/user-attachments/assets/59e8d151-bf63-4899-966c-24d24b489c3e" />
+
 
 ## 推荐启动方式
 
@@ -8,11 +12,25 @@
 python qml_prototype/main.py
 ```
 
-主界面包含星超导伤害计算、常驻 ATK 计算器、配置槽、自动保存、UGC 截图异步识别、主题切换和 Windows 无边框窗口支持。截图识别可直接点击游戏窗口自动截图，也可选择已有图片文件。详细界面说明见 [`qml_prototype/README.md`](qml_prototype/README.md)。
+主界面包含星超导伤害计算、常驻 ATK 计算器、配置槽、自动保存、千星奇域截图异步识别、主题切换和 Windows 无边框窗口支持。截图识别可直接点击游戏窗口自动截图，也可选择已有图片文件。详细界面说明见 [`qml_prototype/README.md`](qml_prototype/README.md)。
+
+## 千星奇域截图识别使用方法
+
+关卡ID：24313967152
+
+选择你想查看的角色进入关卡，然后走到剑模型前按下交互即可查看弹出的角色面板信息。
+回到伤害计算器，点击填写数据的卡片中的截图识别进行后续操作即可。
+### 推荐分辨率：1920x1080
+截图：
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/78a4e98f-0804-4bdd-a8aa-b0fa20c5b5b5" />
+
 
 ## 公式
 
 程序按题图实现：
+
+爱来自米游社[`幕陵`](https://www.miyoushe.com/ys/article/76245069)
+<img width="1587" height="2211" alt="image" src="https://github.com/user-attachments/assets/96ad01b3-bb35-4aa7-a1d7-45bfbe04fd88" />
 
 ```text
 星超导反应角色伤害 = 基础区 × 双爆区 × 抗性区 × 擢升区
@@ -62,7 +80,7 @@ python qml_prototype/main.py
 python qml_prototype/main.py
 ```
 
-窗口固定为 `1180 × 820`，顶部中央可切换计算模块；当前模块为“星超导伤害”。左侧菜单提供跟随系统、手动深色模式和芙宁娜主题设置。Windows 11 下会请求系统原生圆角，右上角提供最小化与关闭按钮。
+窗口固定为 `1180 × 820`，顶部中央可切换计算模块；当前模块为“星超导伤害”。左侧菜单提供跟随系统、手动深色模式和芙宁娜主题设置。
 
 ### 配置、主题与自动保存
 
