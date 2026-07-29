@@ -76,7 +76,7 @@ QML 主界面包含 5 个配置槽。保存时会写入当前输入、伤害模�
 
 伤害配置默认保存到用户目录下的 `.genshin_damage_calculator.json` 与各槽位文件；ATK 计算器配置保存在 `.genshin_atk_artifacts.json`。
 
-### Debug 取整模式
+### Debug 取整模式（仅在ctk、tk模式下可用，发布的release压缩包不包括该功能）
 
 如果你在对比实际游戏伤害时发现有十几点偏差，可以打开 debug 取整模式来测试取整造成的影响。
 
