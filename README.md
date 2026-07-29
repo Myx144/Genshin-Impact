@@ -1,6 +1,6 @@
-# Genshin Impact Damage Calculator
+# 原神伤害计算器
 
-这是一个用于计算原神角色星超导反应伤害的 Python 项目。当前主界面采用 PySide6/QML Signal UI，计算后端位于 `damage_calculator.py`。
+这是一个用于扩展原神角色伤害计算模块的 Python 项目。当前已实现 **星超导伤害** 模块，计算后端位于 `damage_calculator.py`；主界面采用 PySide6/QML Signal UI，后续模块通过顶部的计算模式选择器接入。
 
 ## 推荐启动方式
 
@@ -8,7 +8,7 @@
 python qml_prototype/main.py
 ```
 
-主界面包含伤害计算、ATK 计算器、配置槽、自动保存以及 UGC 截图异步识别。
+主界面包含星超导伤害计算、常驻 ATK 计算器、配置槽、自动保存、UGC 截图异步识别、主题切换和 Windows 无边框窗口支持。详细界面说明见 [`qml_prototype/README.md`](qml_prototype/README.md)。
 
 ## 公式
 
@@ -69,17 +69,27 @@ python damage_calculator.py --list-inputs
 
 ## 可视化界面
 
-当前支持的主界面是 QML Signal UI：
+当前主界面为 QML Signal UI：
 
 ```powershell
 python qml_prototype/main.py
 ```
 
+窗口固定为 `1180 × 820`，顶部中央可切换计算模块；当前模块为“星超导伤害”。左侧菜单提供跟随系统、手动深色模式和芙宁娜主题设置。Windows 11 下会请求系统原生圆角，右上角提供最小化与关闭按钮。
+
 旧 Tkinter 界面仍可通过 `python damage_calculator.py --gui` 启动，仅作为兼容入口保留。
 
-### 保存输入数据
+### 配置、主题与自动保存
 
-在可视化界面中点击“保存当前数据”后，程序会保存当前所有输入框内容和当前模式；下次运行 `python damage_calculator.py --gui` 时会自动加载这些数据。默认保存位置为用户目录下的 `.genshin_damage_calculator.json`。
+QML 主界面包含 5 个配置槽。保存时会写入当前输入、伤害模式、百分比输入模式、条件 ATK 加成、自动保存状态，以及下列主题状态：
+
+- `followSystem`
+- `darkMode`
+- `furinaTheme`
+
+主题会随配置槽恢复；如果某个配置启用了“跟随系统”，读取后会按当前 Windows 系统主题决定实际浅色或深色。旧存档没有主题字段时保持兼容。
+
+伤害配置默认保存到用户目录下的 `.genshin_damage_calculator.json` 与各槽位文件；ATK 计算器配置保存在 `.genshin_atk_artifacts.json`。
 
 ### Debug 取整模式
 
