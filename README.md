@@ -43,29 +43,16 @@ python qml_prototype/main.py
 星超导层数 = 1-12：0.05 × 层数 + 1.4
 ```
 
-## 所需输入数据名称
+## 输入方式
 
-百分比统一用小数输入，例如 80% 输入 `0.8`，140% 输入 `1.4`。
+当前版本仅支持通过 QML 图形界面输入和计算，不提供命令行计算入口。
 
-| 程序参数名称 | 中文名称 | 是否必填 | 说明 |
-| --- | --- | --- | --- |
-| `--atk` | 角色 atk / 角色面板攻击力 | 必填 | 题图基础区中的“角色面板”，直接填角色攻击力数值。 |
-| `--em` | 元素精通 | 必填 | 用于计算精通提升：元素精通 × 6 / (元素精通 + 2000)。 |
-| `--crit-rate` | 暴击率 | 必填 | 用小数输入，例如 70% 填 `0.7`。 |
-| `--crit-damage` | 暴击伤害 | 必填 | 用小数输入，例如 140% 填 `1.4`。 |
-| `--talent-multiplier` | 天赋倍率 | 必填 | 题图基础区中的“倍率”，例如 250% 填 `2.5`。 |
-| `--stacks` | 星超导层数 | 可选，默认 `0` | 取值范围为 0 到 12，用于计算反应系数。 |
-| `--reaction-bonus` | 反应提升 | 可选，默认 `0` | 增伤区中的反应提升，用小数输入。 |
-| `--base-reaction-damage-bonus` | 星反应基础伤害提升 | 可选，默认 `0` | 加伤区中的基础伤害提升，用小数输入。 |
-| `--flat-damage-increase` | 伤害提高 | 可选，默认 `0` | 基础区末尾直接相加的固定伤害值。 |
-| `--enemy-resistance` | 目标抗性 | 可选，默认 `0.1` | 抗性区输入，可为负数；10% 填 `0.1`。 |
-| `--elevation-bonus` | 擢升提升 | 可选，默认 `0` | 擢升区提升，用小数输入。 |
+界面可在“小数输入”和“百分数输入”之间切换：
 
-也可以用下面的命令在终端直接查看输入名称：
+- 小数输入：80% 填 `0.8`，140% 填 `1.4`。
+- 百分数输入：80% 填 `80`，140% 填 `140`。
 
-```bash
-python damage_calculator.py --list-inputs
-```
+各输入项会在界面内以中文名称和说明显示；星超导伤害模块包含角色攻击力、元素精通、暴击率、暴击伤害、天赋倍率、层数、增伤、固定伤害、目标抗性与擢升提升等数据。
 
 ## 可视化界面
 
@@ -76,8 +63,6 @@ python qml_prototype/main.py
 ```
 
 窗口固定为 `1180 × 820`，顶部中央可切换计算模块；当前模块为“星超导伤害”。左侧菜单提供跟随系统、手动深色模式和芙宁娜主题设置。Windows 11 下会请求系统原生圆角，右上角提供最小化与关闭按钮。
-
-旧 Tkinter 界面仍可通过 `python damage_calculator.py --gui` 启动，仅作为兼容入口保留。
 
 ### 配置、主题与自动保存
 
@@ -108,75 +93,18 @@ Debug 取整现在分成两部分：
 - 一键把全部数值或全部计算结果设置为同一种取整方式。
 - 点击“保存当前数据”时，也会保存当前 debug 开关、数值取整方式和计算结果取整方式，下次打开 GUI 自动加载。
 
-命令行也可以控制 debug 取整：
-
-```bash
-python damage_calculator.py \
-  --atk 2000 \
-  --em 300 \
-  --crit-rate 0.7 \
-  --crit-damage 1.4 \
-  --talent-multiplier 2.5 \
-  --debug-rounding \
-  --value-rounding-mode off \
-  --result-rounding-mode floor
-```
-
-如果只想控制某一个数值或某一步计算结果，可以使用：
-
-- `--round-value STEP=MODE`：控制单个数值取整。
-- `--round-result STEP=MODE`：控制单个计算结果取整。
-
-例如：
-
-```bash
-python damage_calculator.py \
-  --atk 2000.6 \
-  --em 300 \
-  --crit-rate 0.7 \
-  --crit-damage 1.4 \
-  --talent-multiplier 2.5 \
-  --debug-rounding \
-  --value-rounding-mode off \
-  --result-rounding-mode off \
-  --round-value atk=floor \
-  --round-result expected_damage=floor
-```
-
-可用取整模式：`off`（关闭取整）、`round`（四舍五入）、`ceil`（向上取整）、`floor`（向下取整）。旧参数 `--rounding-mode` 和 `--round-step` 仍可使用，分别等同于 `--result-rounding-mode` 和 `--round-result`。
+可用取整模式：`off`（关闭取整）、`round`（四舍五入）、`ceil`（向上取整）、`floor`（向下取整）。
 
 ## 使用方式
 
-百分比请用小数输入，例如 80% 输入 `0.8`，140% 输入 `1.4`。
+1. 在仓库根目录运行：
 
-```bash
-python damage_calculator.py \
-  --atk 2000 \
-  --em 300 \
-  --crit-rate 0.7 \
-  --crit-damage 1.4 \
-  --talent-multiplier 2.5 \
-  --stacks 6 \
-  --reaction-bonus 0.15 \
-  --base-reaction-damage-bonus 0.14 \
-  --flat-damage-increase 0 \
-  --enemy-resistance 0.1 \
-  --elevation-bonus 0
-```
+   ```powershell
+   python qml_prototype/main.py
+   ```
 
-如果要在命令行中使用暴伤模式（暴击率系数按 `1` 计算），增加 `--crit-damage-only`：
-
-```bash
-python damage_calculator.py \
-  --atk 2000 \
-  --em 300 \
-  --crit-rate 0.7 \
-  --crit-damage 1.4 \
-  --talent-multiplier 2.5 \
-  --crit-damage-only
-```
-
-程序会输出各分区系数以及最终 `expected_damage`。
+2. 在界面中填写或恢复配置数据，选择“小数输入 / 百分数输入”和伤害模式。
+3. 点击“计算”查看最终伤害及各分区结果；需要对比实机数据时，可在界面中打开“Debug取整”。
 
 ## 创建 GitHub Release ZIP
 
